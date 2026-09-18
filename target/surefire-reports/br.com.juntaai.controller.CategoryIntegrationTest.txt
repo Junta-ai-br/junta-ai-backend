@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: br.com.juntaai.controller.CategoryIntegrationTest
--------------------------------------------------------------------------------
-Tests run: 4, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.389 s -- in br.com.juntaai.controller.CategoryIntegrationTest

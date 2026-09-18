@@ -1,6 +1,0 @@
-spring:
-  datasource:
-    url: jdbc:postgresql://postgres:5432/junta_ai
-ai:
-  service:
-    base-url: ${AI_SERVICE_BASE_URL:http://junta-ai-ai:8000}

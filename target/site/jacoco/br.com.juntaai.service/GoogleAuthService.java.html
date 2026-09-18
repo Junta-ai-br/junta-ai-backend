@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="pt"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GoogleAuthService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">junta-ai-backend</a> &gt; <a href="index.source.html" class="el_package">br.com.juntaai.service</a> &gt; <span class="el_source">GoogleAuthService.java</span></div><h1>GoogleAuthService.java</h1><pre class="source lang-java linenums">package br.com.juntaai.service;
+
+import br.com.juntaai.entity.Role;
+import br.com.juntaai.entity.User;
+import br.com.juntaai.exception.ApiException;
+import br.com.juntaai.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClient;
+
+import java.util.Map;
+
+/**
+ * Login com Google. Valida o ID Token recebido do frontend contra o
+ * endpoint público do Google (tokeninfo) — abordagem simples e sem
+ * dependência extra, adequada para o MVP. Se o app crescer, migrar para
+ * a biblioteca oficial google-auth-library-oauth2-http é recomendado
+ * (valida a assinatura localmente, sem round-trip de rede a cada login).
+ */
+<span class="fc" id="L24">@Slf4j</span>
+@Service
+@RequiredArgsConstructor
+public class GoogleAuthService {
+
+    private final RestClient googleRestClient;
+    private final UserRepository userRepository;
+
+    @Value(&quot;${google.oauth.client-id:}&quot;)
+    private String expectedClientId;
+
+    @Transactional
+    public User authenticate(String idToken) {
+<span class="nc" id="L37">        Map&lt;String, Object&gt; claims = fetchTokenInfo(idToken);</span>
+
+<span class="nc" id="L39">        String audience = String.valueOf(claims.get(&quot;aud&quot;));</span>
+<span class="nc bnc" id="L40" title="All 4 branches missed.">        if (expectedClientId.isBlank() || !expectedClientId.equals(audience)) {</span>
+<span class="nc" id="L41">            throw new ApiException(HttpStatus.UNAUTHORIZED, &quot;Token do Google inválido para esta aplicação.&quot;);</span>
+        }
+
+<span class="nc bnc" id="L44" title="All 2 branches missed.">        if (!&quot;true&quot;.equals(String.valueOf(claims.get(&quot;email_verified&quot;)))) {</span>
+<span class="nc" id="L45">            throw new ApiException(HttpStatus.UNAUTHORIZED, &quot;E-mail do Google não verificado.&quot;);</span>
+        }
+
+<span class="nc" id="L48">        String googleId = String.valueOf(claims.get(&quot;sub&quot;));</span>
+<span class="nc" id="L49">        String email = String.valueOf(claims.get(&quot;email&quot;));</span>
+<span class="nc" id="L50">        String name = claims.getOrDefault(&quot;name&quot;, email).toString();</span>
+
+<span class="nc" id="L52">        return userRepository.findByGoogleId(googleId)</span>
+<span class="nc" id="L53">                .or(() -&gt; linkExistingAccountByEmail(email, googleId))</span>
+<span class="nc" id="L54">                .orElseGet(() -&gt; createUser(name, email, googleId));</span>
+    }
+
+    private java.util.Optional&lt;User&gt; linkExistingAccountByEmail(String email, String googleId) {
+<span class="nc" id="L58">        return userRepository.findByEmail(email).map(user -&gt; {</span>
+<span class="nc" id="L59">            user.setGoogleId(googleId);</span>
+<span class="nc" id="L60">            return userRepository.save(user);</span>
+        });
+    }
+
+    private User createUser(String name, String email, String googleId) {
+<span class="nc" id="L65">        User user = User.builder()</span>
+<span class="nc" id="L66">                .name(name)</span>
+<span class="nc" id="L67">                .email(email)</span>
+<span class="nc" id="L68">                .googleId(googleId)</span>
+<span class="nc" id="L69">                .role(Role.USER)</span>
+<span class="nc" id="L70">                .build();</span>
+<span class="nc" id="L71">        return userRepository.save(user);</span>
+    }
+
+    @SuppressWarnings(&quot;unchecked&quot;)
+    private Map&lt;String, Object&gt; fetchTokenInfo(String idToken) {
+        try {
+<span class="nc" id="L77">            return googleRestClient.get()</span>
+<span class="nc" id="L78">                    .uri(&quot;/tokeninfo?id_token={token}&quot;, idToken)</span>
+<span class="nc" id="L79">                    .retrieve()</span>
+<span class="nc" id="L80">                    .body(Map.class);</span>
+<span class="nc" id="L81">        } catch (Exception ex) {</span>
+<span class="nc" id="L82">            log.warn(&quot;Falha ao validar ID Token do Google: {}&quot;, ex.getMessage());</span>
+<span class="nc" id="L83">            throw new ApiException(HttpStatus.UNAUTHORIZED, &quot;Não foi possível validar o login com Google.&quot;);</span>
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

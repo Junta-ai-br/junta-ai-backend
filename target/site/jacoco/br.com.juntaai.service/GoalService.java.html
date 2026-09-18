@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="pt"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GoalService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">junta-ai-backend</a> &gt; <a href="index.source.html" class="el_package">br.com.juntaai.service</a> &gt; <span class="el_source">GoalService.java</span></div><h1>GoalService.java</h1><pre class="source lang-java linenums">package br.com.juntaai.service;
+
+import br.com.juntaai.dto.goal.GoalRequest;
+import br.com.juntaai.dto.goal.GoalResponse;
+import br.com.juntaai.entity.Goal;
+import br.com.juntaai.entity.GoalStatus;
+import br.com.juntaai.entity.User;
+import br.com.juntaai.exception.BusinessRuleException;
+import br.com.juntaai.exception.ResourceNotFoundException;
+import br.com.juntaai.repository.GoalRepository;
+import br.com.juntaai.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+public class GoalService {
+
+    private final GoalRepository goalRepository;
+    private final UserRepository userRepository;
+
+    @Transactional
+    public GoalResponse create(UUID userId, GoalRequest request) {
+<span class="fc" id="L29">        User user = userRepository.getReferenceById(userId);</span>
+
+<span class="fc" id="L31">        Goal goal = Goal.builder()</span>
+<span class="fc" id="L32">                .user(user)</span>
+<span class="fc" id="L33">                .name(request.name())</span>
+<span class="fc" id="L34">                .targetAmount(request.targetAmount())</span>
+<span class="fc" id="L35">                .currentAmount(BigDecimal.ZERO)</span>
+<span class="fc" id="L36">                .deadline(request.deadline())</span>
+<span class="fc" id="L37">                .status(GoalStatus.IN_PROGRESS)</span>
+<span class="fc" id="L38">                .build();</span>
+
+<span class="fc" id="L40">        return toResponse(goalRepository.save(goal));</span>
+    }
+
+    public List&lt;GoalResponse&gt; listForUser(UUID userId) {
+<span class="nc" id="L44">        return goalRepository.findByUserIdOrderByDeadlineAsc(userId).stream()</span>
+<span class="nc" id="L45">                .map(this::toResponse)</span>
+<span class="nc" id="L46">                .toList();</span>
+    }
+
+    @Transactional
+    public GoalResponse update(UUID userId, UUID goalId, GoalRequest request) {
+<span class="fc" id="L51">        Goal goal = findOwnedOrThrow(userId, goalId);</span>
+
+<span class="pc bpc" id="L53" title="1 of 2 branches missed.">        if (goal.getStatus() != GoalStatus.IN_PROGRESS) {</span>
+<span class="fc" id="L54">            throw new BusinessRuleException(&quot;Metas concluídas ou canceladas não podem ser editadas.&quot;);</span>
+        }
+
+<span class="nc" id="L57">        goal.setName(request.name());</span>
+<span class="nc" id="L58">        goal.setTargetAmount(request.targetAmount());</span>
+<span class="nc" id="L59">        goal.setDeadline(request.deadline());</span>
+<span class="nc" id="L60">        return toResponse(goal);</span>
+    }
+
+    /** Soma um aporte à meta e marca como concluída quando o valor alvo é atingido. */
+    @Transactional
+    public GoalResponse addProgress(UUID userId, UUID goalId, BigDecimal amount) {
+<span class="fc" id="L66">        Goal goal = findOwnedOrThrow(userId, goalId);</span>
+
+<span class="fc bfc" id="L68" title="All 2 branches covered.">        if (goal.getStatus() != GoalStatus.IN_PROGRESS) {</span>
+<span class="fc" id="L69">            throw new BusinessRuleException(&quot;Esta meta não está mais em andamento.&quot;);</span>
+        }
+
+<span class="fc" id="L72">        goal.setCurrentAmount(goal.getCurrentAmount().add(amount));</span>
+
+<span class="fc bfc" id="L74" title="All 2 branches covered.">        if (goal.getCurrentAmount().compareTo(goal.getTargetAmount()) &gt;= 0) {</span>
+<span class="fc" id="L75">            goal.setStatus(GoalStatus.COMPLETED);</span>
+        }
+
+<span class="fc" id="L78">        return toResponse(goal);</span>
+    }
+
+    @Transactional
+    public void delete(UUID userId, UUID goalId) {
+<span class="nc" id="L83">        Goal goal = findOwnedOrThrow(userId, goalId);</span>
+<span class="nc" id="L84">        goalRepository.delete(goal);</span>
+<span class="nc" id="L85">    }</span>
+
+    private Goal findOwnedOrThrow(UUID userId, UUID goalId) {
+<span class="fc" id="L88">        return goalRepository.findByIdAndUserId(goalId, userId)</span>
+<span class="pc" id="L89">                .orElseThrow(() -&gt; new ResourceNotFoundException(&quot;Meta&quot;));</span>
+    }
+
+    private GoalResponse toResponse(Goal goal) {
+<span class="fc" id="L93">        return new GoalResponse(</span>
+<span class="fc" id="L94">                goal.getId(),</span>
+<span class="fc" id="L95">                goal.getName(),</span>
+<span class="fc" id="L96">                goal.getTargetAmount(),</span>
+<span class="fc" id="L97">                goal.getCurrentAmount(),</span>
+<span class="fc" id="L98">                goal.getDeadline(),</span>
+<span class="fc" id="L99">                goal.getStatus().name());</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

@@ -1,0 +1,12 @@
+/home/sissi/junta-ai-vscode/junta-ai-backend/src/test/java/br/com/juntaai/AbstractIntegrationTest.java
+/home/sissi/junta-ai-vscode/junta-ai-backend/src/test/java/br/com/juntaai/controller/AuthIntegrationTest.java
+/home/sissi/junta-ai-vscode/junta-ai-backend/src/test/java/br/com/juntaai/controller/CategoryIntegrationTest.java
+/home/sissi/junta-ai-vscode/junta-ai-backend/src/test/java/br/com/juntaai/controller/ConversationIntegrationTest.java
+/home/sissi/junta-ai-vscode/junta-ai-backend/src/test/java/br/com/juntaai/controller/GoalIntegrationTest.java
+/home/sissi/junta-ai-vscode/junta-ai-backend/src/test/java/br/com/juntaai/controller/TransactionIntegrationTest.java
+/home/sissi/junta-ai-vscode/junta-ai-backend/src/test/java/br/com/juntaai/service/AuthServiceTest.java
+/home/sissi/junta-ai-vscode/junta-ai-backend/src/test/java/br/com/juntaai/service/CategoryServiceTest.java
+/home/sissi/junta-ai-vscode/junta-ai-backend/src/test/java/br/com/juntaai/service/ConversationServiceTest.java
+/home/sissi/junta-ai-vscode/junta-ai-backend/src/test/java/br/com/juntaai/service/DashboardServiceTest.java
+/home/sissi/junta-ai-vscode/junta-ai-backend/src/test/java/br/com/juntaai/service/GoalServiceTest.java
+/home/sissi/junta-ai-vscode/junta-ai-backend/src/test/java/br/com/juntaai/service/TransactionServiceTest.java

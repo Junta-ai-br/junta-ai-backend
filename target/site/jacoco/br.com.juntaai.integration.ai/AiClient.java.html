@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="pt"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AiClient.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">junta-ai-backend</a> &gt; <a href="index.source.html" class="el_package">br.com.juntaai.integration.ai</a> &gt; <span class="el_source">AiClient.java</span></div><h1>AiClient.java</h1><pre class="source lang-java linenums">package br.com.juntaai.integration.ai;
+
+import br.com.juntaai.exception.AiServiceUnavailableException;
+import br.com.juntaai.integration.ai.model.AIServiceRequest;
+import br.com.juntaai.integration.ai.model.ProcessingResult;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+
+/**
+ * Porta de saída para o serviço de IA (junta-ai-ai). É a ÚNICA classe do
+ * backend que conhece o endpoint real e o transporte HTTP. O contrato de
+ * dados (request/response) vem do repositório junta-ai-ai —
+ * specs/001-ai-service-foundation/contracts/service-boundary.md — e é
+ * espelhado pelos records em integration.ai.model.
+ *
+ * Cada chamada é uma rodada isolada: o serviço de IA não guarda estado
+ * entre requisições, então o Backend sempre reenvia o pending_operation
+ * e/ou pending_action da rodada anterior (ver ConversationService).
+ */
+<span class="fc" id="L23">@Slf4j</span>
+@Component
+@RequiredArgsConstructor
+public class AiClient {
+
+    private static final String PROCESS_PATH = &quot;/v1/conversations/process&quot;;
+
+    private final RestClient aiServiceRestClient;
+
+    @Value(&quot;${ai.service.chat-path:&quot; + PROCESS_PATH + &quot;}&quot;)
+    private String processPath;
+
+    public ProcessingResult process(AIServiceRequest request) {
+        try {
+<span class="nc" id="L37">            return aiServiceRestClient.post()</span>
+<span class="nc" id="L38">                    .uri(processPath)</span>
+<span class="nc" id="L39">                    .body(request)</span>
+<span class="nc" id="L40">                    .retrieve()</span>
+<span class="nc" id="L41">                    .body(ProcessingResult.class);</span>
+<span class="nc" id="L42">        } catch (Exception ex) {</span>
+<span class="nc" id="L43">            log.warn(&quot;Falha ao chamar o serviço de IA ({}): {}&quot;, processPath, ex.getMessage());</span>
+<span class="nc" id="L44">            throw new AiServiceUnavailableException(</span>
+                    &quot;O assistente está indisponível no momento. Tente novamente em instantes.&quot;);
+        }
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

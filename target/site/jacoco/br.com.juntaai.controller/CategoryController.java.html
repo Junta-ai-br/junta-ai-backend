@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="pt"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>CategoryController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">junta-ai-backend</a> &gt; <a href="index.source.html" class="el_package">br.com.juntaai.controller</a> &gt; <span class="el_source">CategoryController.java</span></div><h1>CategoryController.java</h1><pre class="source lang-java linenums">package br.com.juntaai.controller;
+
+import br.com.juntaai.dto.category.CategoryRequest;
+import br.com.juntaai.dto.category.CategoryResponse;
+import br.com.juntaai.security.AuthenticatedUser;
+import br.com.juntaai.service.CategoryService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.UUID;
+
+@RestController
+@RequestMapping(&quot;/categories&quot;)
+@RequiredArgsConstructor
+@Tag(name = &quot;Categorias&quot;, description = &quot;CRUD de categorias financeiras do usuário autenticado&quot;)
+public class CategoryController {
+
+    private final CategoryService categoryService;
+
+    @Operation(summary = &quot;Criar categoria&quot;)
+    @PostMapping
+    public ResponseEntity&lt;CategoryResponse&gt; create(@AuthenticationPrincipal AuthenticatedUser user,
+                                                     @Valid @RequestBody CategoryRequest body) {
+<span class="fc" id="L30">        return ResponseEntity.ok(categoryService.create(user.getId(), body));</span>
+    }
+
+    @Operation(summary = &quot;Listar categorias do usuário&quot;)
+    @GetMapping
+    public ResponseEntity&lt;List&lt;CategoryResponse&gt;&gt; list(@AuthenticationPrincipal AuthenticatedUser user) {
+<span class="fc" id="L36">        return ResponseEntity.ok(categoryService.listForUser(user.getId()));</span>
+    }
+
+    @Operation(summary = &quot;Atualizar categoria&quot;)
+    @PutMapping(&quot;/{id}&quot;)
+    public ResponseEntity&lt;CategoryResponse&gt; update(@AuthenticationPrincipal AuthenticatedUser user,
+                                                     @PathVariable UUID id,
+                                                     @Valid @RequestBody CategoryRequest body) {
+<span class="fc" id="L44">        return ResponseEntity.ok(categoryService.update(user.getId(), id, body));</span>
+    }
+
+    @Operation(summary = &quot;Remover categoria&quot;)
+    @DeleteMapping(&quot;/{id}&quot;)
+    public ResponseEntity&lt;Void&gt; delete(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable UUID id) {
+<span class="fc" id="L50">        categoryService.delete(user.getId(), id);</span>
+<span class="fc" id="L51">        return ResponseEntity.noContent().build();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

@@ -1,0 +1,40 @@
+# Compose de desenvolvimento local: Postgres + Backend.
+# O serviço de IA (junta-ai-ai) vive em repositório próprio; rode-o
+# separadamente e aponte AI_SERVICE_BASE_URL para ele (ex.: http://localhost:8000).
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: junta-ai-postgres
+    environment:
+      POSTGRES_DB: junta_ai
+      POSTGRES_USER: junta_ai
+      POSTGRES_PASSWORD: junta_ai
+    ports:
+      - "5432:5432"
+    volumes:
+      - junta_ai_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U junta_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: .
+    container_name: junta-ai-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      DB_URL: jdbc:postgresql://postgres:5432/junta_ai
+      DB_USER: junta_ai
+      DB_PASSWORD: junta_ai
+      JWT_SECRET: troque-esta-chave-em-producao-min-32-chars
+      AI_SERVICE_BASE_URL: ${AI_SERVICE_BASE_URL:-http://host.docker.internal:8000}
+      CORS_ALLOWED_ORIGINS: http://localhost:5173
+    ports:
+      - "8080:8080"
+
+volumes:
+  junta_ai_pgdata:

@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="pt"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TransactionService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">junta-ai-backend</a> &gt; <a href="index.source.html" class="el_package">br.com.juntaai.service</a> &gt; <span class="el_source">TransactionService.java</span></div><h1>TransactionService.java</h1><pre class="source lang-java linenums">package br.com.juntaai.service;
+
+import br.com.juntaai.dto.transaction.TransactionRequest;
+import br.com.juntaai.dto.transaction.TransactionResponse;
+import br.com.juntaai.entity.Category;
+import br.com.juntaai.entity.Transaction;
+import br.com.juntaai.entity.User;
+import br.com.juntaai.exception.ResourceNotFoundException;
+import br.com.juntaai.repository.TransactionRepository;
+import br.com.juntaai.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDate;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+public class TransactionService {
+
+    private final TransactionRepository transactionRepository;
+    private final UserRepository userRepository;
+    private final CategoryService categoryService;
+
+    @Transactional
+    public TransactionResponse create(UUID userId, TransactionRequest request) {
+        // Garante que a categoria pertence ao mesmo usuário (evita vazamento entre contas).
+<span class="fc" id="L31">        Category category = categoryService.findOwnedOrThrow(userId, request.categoryId());</span>
+<span class="fc" id="L32">        User user = userRepository.getReferenceById(userId);</span>
+
+<span class="fc" id="L34">        Transaction transaction = Transaction.builder()</span>
+<span class="fc" id="L35">                .user(user)</span>
+<span class="fc" id="L36">                .category(category)</span>
+<span class="fc" id="L37">                .type(request.type())</span>
+<span class="fc" id="L38">                .description(request.description())</span>
+<span class="fc" id="L39">                .amount(request.amount())</span>
+<span class="fc" id="L40">                .transactionDate(request.transactionDate())</span>
+<span class="fc" id="L41">                .build();</span>
+
+<span class="fc" id="L43">        return toResponse(transactionRepository.save(transaction));</span>
+    }
+
+    /**
+     * @Transactional(readOnly = true) é necessário aqui: sem isso, a
+     * sessão do Hibernate fecha antes do .map(this::toResponse) rodar,
+     * e toResponse() acessa transaction.getCategory().getName() — uma
+     * associação @ManyToOne LAZY, que só carrega de verdade quando
+     * alguém lê. Sem sessão aberta, isso estoura LazyInitializationException.
+     */
+    @Transactional(readOnly = true)
+    public Page&lt;TransactionResponse&gt; listForUser(UUID userId, LocalDate from, LocalDate to, Pageable pageable) {
+<span class="fc" id="L55">        return transactionRepository</span>
+<span class="fc" id="L56">                .findByUserIdAndTransactionDateBetween(userId, from, to, pageable)</span>
+<span class="fc" id="L57">                .map(this::toResponse);</span>
+    }
+
+    @Transactional
+    public TransactionResponse update(UUID userId, UUID transactionId, TransactionRequest request) {
+<span class="nc" id="L62">        Transaction transaction = findOwnedOrThrow(userId, transactionId);</span>
+<span class="nc" id="L63">        Category category = categoryService.findOwnedOrThrow(userId, request.categoryId());</span>
+
+<span class="nc" id="L65">        transaction.setCategory(category);</span>
+<span class="nc" id="L66">        transaction.setType(request.type());</span>
+<span class="nc" id="L67">        transaction.setDescription(request.description());</span>
+<span class="nc" id="L68">        transaction.setAmount(request.amount());</span>
+<span class="nc" id="L69">        transaction.setTransactionDate(request.transactionDate());</span>
+
+<span class="nc" id="L71">        return toResponse(transaction);</span>
+    }
+
+    @Transactional
+    public void delete(UUID userId, UUID transactionId) {
+<span class="nc" id="L76">        Transaction transaction = findOwnedOrThrow(userId, transactionId);</span>
+<span class="nc" id="L77">        transactionRepository.delete(transaction);</span>
+<span class="nc" id="L78">    }</span>
+
+    private Transaction findOwnedOrThrow(UUID userId, UUID transactionId) {
+<span class="nc" id="L81">        return transactionRepository.findByIdAndUserId(transactionId, userId)</span>
+<span class="nc" id="L82">                .orElseThrow(() -&gt; new ResourceNotFoundException(&quot;Transação&quot;));</span>
+    }
+
+    private TransactionResponse toResponse(Transaction t) {
+<span class="fc" id="L86">        return new TransactionResponse(</span>
+<span class="fc" id="L87">                t.getId(),</span>
+<span class="fc" id="L88">                t.getCategory().getId(),</span>
+<span class="fc" id="L89">                t.getCategory().getName(),</span>
+<span class="fc" id="L90">                t.getType().name(),</span>
+<span class="fc" id="L91">                t.getDescription(),</span>
+<span class="fc" id="L92">                t.getAmount(),</span>
+<span class="fc" id="L93">                t.getTransactionDate(),</span>
+<span class="fc" id="L94">                t.getCreatedAt());</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

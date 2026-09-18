@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="pt"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>TransactionController.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">junta-ai-backend</a> &gt; <a href="index.source.html" class="el_package">br.com.juntaai.controller</a> &gt; <span class="el_source">TransactionController.java</span></div><h1>TransactionController.java</h1><pre class="source lang-java linenums">package br.com.juntaai.controller;
+
+import br.com.juntaai.dto.transaction.TransactionRequest;
+import br.com.juntaai.dto.transaction.TransactionResponse;
+import br.com.juntaai.security.AuthenticatedUser;
+import br.com.juntaai.service.TransactionService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import java.util.UUID;
+
+@RestController
+@RequestMapping(&quot;/transactions&quot;)
+@RequiredArgsConstructor
+@Tag(name = &quot;Transações&quot;, description = &quot;CRUD de receitas e despesas do usuário autenticado&quot;)
+public class TransactionController {
+
+    private final TransactionService transactionService;
+
+    @Operation(summary = &quot;Criar transação (receita ou despesa)&quot;)
+    @PostMapping
+    public ResponseEntity&lt;TransactionResponse&gt; create(@AuthenticationPrincipal AuthenticatedUser user,
+                                                        @Valid @RequestBody TransactionRequest body) {
+<span class="fc" id="L33">        return ResponseEntity.ok(transactionService.create(user.getId(), body));</span>
+    }
+
+    @Operation(summary = &quot;Listar transações do usuário, paginado e filtrado por período&quot;)
+    @GetMapping
+    public ResponseEntity&lt;Page&lt;TransactionResponse&gt;&gt; list(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            Pageable pageable) {
+
+<span class="pc bpc" id="L44" title="1 of 2 branches missed.">        LocalDate effectiveTo = to != null ? to : LocalDate.now();</span>
+<span class="pc bpc" id="L45" title="1 of 2 branches missed.">        LocalDate effectiveFrom = from != null ? from : effectiveTo.minusMonths(1);</span>
+
+<span class="fc" id="L47">        return ResponseEntity.ok(transactionService.listForUser(user.getId(), effectiveFrom, effectiveTo, pageable));</span>
+    }
+
+    @Operation(summary = &quot;Atualizar transação&quot;)
+    @PutMapping(&quot;/{id}&quot;)
+    public ResponseEntity&lt;TransactionResponse&gt; update(@AuthenticationPrincipal AuthenticatedUser user,
+                                                        @PathVariable UUID id,
+                                                        @Valid @RequestBody TransactionRequest body) {
+<span class="nc" id="L55">        return ResponseEntity.ok(transactionService.update(user.getId(), id, body));</span>
+    }
+
+    @Operation(summary = &quot;Remover transação&quot;)
+    @DeleteMapping(&quot;/{id}&quot;)
+    public ResponseEntity&lt;Void&gt; delete(@AuthenticationPrincipal AuthenticatedUser user, @PathVariable UUID id) {
+<span class="nc" id="L61">        transactionService.delete(user.getId(), id);</span>
+<span class="nc" id="L62">        return ResponseEntity.noContent().build();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

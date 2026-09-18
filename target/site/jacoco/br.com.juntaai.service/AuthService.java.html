@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="pt"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>AuthService.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">junta-ai-backend</a> &gt; <a href="index.source.html" class="el_package">br.com.juntaai.service</a> &gt; <span class="el_source">AuthService.java</span></div><h1>AuthService.java</h1><pre class="source lang-java linenums">package br.com.juntaai.service;
+
+import br.com.juntaai.dto.auth.AccessCodeVerifyRequest;
+import br.com.juntaai.dto.auth.RegisterRequest;
+import br.com.juntaai.dto.auth.TokenResponse;
+import br.com.juntaai.entity.OnboardingAnswers;
+import br.com.juntaai.entity.Role;
+import br.com.juntaai.entity.User;
+import br.com.juntaai.exception.ConflictException;
+import br.com.juntaai.repository.OnboardingAnswersRepository;
+import br.com.juntaai.repository.UserRepository;
+import br.com.juntaai.security.JwtUtil;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Service
+@RequiredArgsConstructor
+public class AuthService {
+
+    private final UserRepository userRepository;
+    private final OnboardingAnswersRepository onboardingAnswersRepository;
+    private final JwtUtil jwtUtil;
+    private final RefreshTokenService refreshTokenService;
+    private final EmailAccessCodeService emailAccessCodeService;
+    private final GoogleAuthService googleAuthService;
+
+    /**
+     * Cria a conta (Etapa 1 + Etapa 2 do cadastro do frontend) e já
+     * devolve os tokens — o e-mail é confirmado depois, no primeiro
+     * login por código, não no cadastro em si.
+     */
+    @Transactional
+    public TokenResponse register(RegisterRequest request) {
+<span class="fc bfc" id="L35" title="All 2 branches covered.">        if (userRepository.existsByEmail(request.email())) {</span>
+<span class="fc" id="L36">            throw new ConflictException(&quot;Este e-mail já está cadastrado.&quot;);</span>
+        }
+
+<span class="fc" id="L39">        User user = User.builder()</span>
+<span class="fc" id="L40">                .name(request.name())</span>
+<span class="fc" id="L41">                .email(request.email())</span>
+<span class="fc" id="L42">                .whatsapp(request.whatsapp())</span>
+<span class="fc" id="L43">                .role(Role.USER)</span>
+<span class="fc" id="L44">                .build();</span>
+
+<span class="fc" id="L46">        userRepository.save(user);</span>
+<span class="fc" id="L47">        saveOnboardingAnswersIfPresent(user, request);</span>
+
+<span class="fc" id="L49">        return issueTokens(user);</span>
+    }
+
+    @Transactional
+    public void requestAccessCode(String email) {
+<span class="fc" id="L54">        emailAccessCodeService.requestCode(email);</span>
+<span class="fc" id="L55">    }</span>
+
+    @Transactional
+    public TokenResponse verifyAccessCode(AccessCodeVerifyRequest request) {
+<span class="fc" id="L59">        User user = emailAccessCodeService.verifyCode(request.email(), request.code());</span>
+<span class="fc" id="L60">        return issueTokens(user);</span>
+    }
+
+    @Transactional
+    public TokenResponse loginWithGoogle(String idToken) {
+<span class="fc" id="L65">        User user = googleAuthService.authenticate(idToken);</span>
+<span class="fc" id="L66">        return issueTokens(user);</span>
+    }
+
+    @Transactional
+    public TokenResponse refresh(String refreshTokenValue) {
+<span class="fc" id="L71">        User user = refreshTokenService.validateAndRotate(refreshTokenValue);</span>
+<span class="fc" id="L72">        return issueTokens(user);</span>
+    }
+
+    @Transactional
+    public void logout(String refreshTokenValue) {
+<span class="nc bnc" id="L77" title="All 2 branches missed.">        var token = refreshTokenValue == null ? null : refreshTokenValue.trim();</span>
+<span class="nc bnc" id="L78" title="All 4 branches missed.">        if (token != null &amp;&amp; !token.isEmpty()) {</span>
+<span class="nc" id="L79">            refreshTokenService.validateAndRotate(token);</span>
+        }
+<span class="nc" id="L81">    }</span>
+
+    private void saveOnboardingAnswersIfPresent(User user, RegisterRequest request) {
+<span class="fc bfc" id="L84" title="All 2 branches covered.">        boolean answeredAnything = request.question1() != null</span>
+<span class="pc bpc" id="L85" title="1 of 2 branches missed.">                || request.question2() != null</span>
+<span class="pc bpc" id="L86" title="1 of 2 branches missed.">                || request.question3() != null;</span>
+
+<span class="fc bfc" id="L88" title="All 2 branches covered.">        if (!answeredAnything) {</span>
+<span class="fc" id="L89">            return;</span>
+        }
+
+<span class="fc" id="L92">        onboardingAnswersRepository.save(OnboardingAnswers.builder()</span>
+<span class="fc" id="L93">                .user(user)</span>
+<span class="fc" id="L94">                .question1(request.question1())</span>
+<span class="fc" id="L95">                .question2(request.question2())</span>
+<span class="fc" id="L96">                .question3(request.question3())</span>
+<span class="fc" id="L97">                .build());</span>
+<span class="fc" id="L98">    }</span>
+
+    private TokenResponse issueTokens(User user) {
+<span class="fc" id="L101">        String accessToken = jwtUtil.generateAccessToken(user.getId(), user.getEmail(), user.getRole());</span>
+<span class="fc" id="L102">        String refreshToken = refreshTokenService.create(user).getToken();</span>
+<span class="fc" id="L103">        return new TokenResponse(accessToken, refreshToken, jwtUtil.getAccessTokenExpirationSeconds());</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="pt"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GlobalExceptionHandler.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">junta-ai-backend</a> &gt; <a href="index.source.html" class="el_package">br.com.juntaai.exception</a> &gt; <span class="el_source">GlobalExceptionHandler.java</span></div><h1>GlobalExceptionHandler.java</h1><pre class="source lang-java linenums">package br.com.juntaai.exception;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+/**
+ * Handler global de exceções. Todas as respostas de erro seguem o mesmo
+ * formato: timestamp, status, erro e mensagem/campos.
+ */
+<span class="fc" id="L22">@Slf4j</span>
+@RestControllerAdvice
+<span class="fc" id="L24">public class GlobalExceptionHandler {</span>
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity&lt;Map&lt;String, Object&gt;&gt; handleValidation(MethodArgumentNotValidException ex) {
+<span class="fc" id="L28">        Map&lt;String, String&gt; campos = ex.getBindingResult().getFieldErrors().stream()</span>
+<span class="fc" id="L29">                .collect(Collectors.toMap(</span>
+                        FieldError::getField,
+<span class="pc bpc" id="L31" title="1 of 2 branches missed.">                        fe -&gt; fe.getDefaultMessage() == null ? &quot;Valor inválido.&quot; : fe.getDefaultMessage(),</span>
+<span class="nc" id="L32">                        (a, b) -&gt; a));</span>
+
+<span class="fc" id="L34">        Map&lt;String, Object&gt; body = baseBody(HttpStatus.BAD_REQUEST, &quot;Erro de validação.&quot;);</span>
+<span class="fc" id="L35">        body.put(&quot;campos&quot;, campos);</span>
+<span class="fc" id="L36">        return ResponseEntity.badRequest().body(body);</span>
+    }
+
+    @ExceptionHandler(ApiException.class)
+    public ResponseEntity&lt;Map&lt;String, Object&gt;&gt; handleApiException(ApiException ex) {
+<span class="fc" id="L41">        return ResponseEntity.status(ex.getStatus()).body(baseBody(ex.getStatus(), ex.getMessage()));</span>
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity&lt;Map&lt;String, Object&gt;&gt; handleAuth(AuthenticationException ex) {
+<span class="nc" id="L46">        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)</span>
+<span class="nc" id="L47">                .body(baseBody(HttpStatus.UNAUTHORIZED, &quot;Credenciais inválidas.&quot;));</span>
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity&lt;Map&lt;String, Object&gt;&gt; handleForbidden(AccessDeniedException ex) {
+<span class="nc" id="L52">        return ResponseEntity.status(HttpStatus.FORBIDDEN)</span>
+<span class="nc" id="L53">                .body(baseBody(HttpStatus.FORBIDDEN, &quot;Você não tem permissão para executar esta ação.&quot;));</span>
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity&lt;Map&lt;String, Object&gt;&gt; handleGeneric(Exception ex) {
+<span class="nc" id="L58">        log.error(&quot;Erro não tratado&quot;, ex);</span>
+<span class="nc" id="L59">        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)</span>
+<span class="nc" id="L60">                .body(baseBody(HttpStatus.INTERNAL_SERVER_ERROR, &quot;Erro interno no servidor.&quot;));</span>
+    }
+
+    private Map&lt;String, Object&gt; baseBody(HttpStatus status, String mensagem) {
+<span class="fc" id="L64">        Map&lt;String, Object&gt; body = new LinkedHashMap&lt;&gt;();</span>
+<span class="fc" id="L65">        body.put(&quot;timestamp&quot;, Instant.now().toString());</span>
+<span class="fc" id="L66">        body.put(&quot;status&quot;, status.value());</span>
+<span class="fc" id="L67">        body.put(&quot;erro&quot;, status.getReasonPhrase());</span>
+<span class="fc" id="L68">        body.put(&quot;mensagem&quot;, mensagem);</span>
+<span class="fc" id="L69">        return body;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.12.202403310830</span></div></body></html>

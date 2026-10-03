@@ -1,7 +1,8 @@
 package br.com.juntaai.service;
 
 import br.com.juntaai.dto.auth.AccessCodeVerifyRequest;
-import br.com.juntaai.dto.auth.RegisterRequest;
+import br.com.juntaai.dto.auth.RegisterCodeRequest;
+import br.com.juntaai.dto.auth.RegisterVerifyRequest;
 import br.com.juntaai.dto.auth.TokenResponse;
 import br.com.juntaai.entity.OnboardingAnswers;
 import br.com.juntaai.entity.Role;
@@ -26,15 +27,29 @@ public class AuthService {
     private final GoogleAuthService googleAuthService;
 
     /**
-     * Cria a conta (Etapa 1 + Etapa 2 do cadastro do frontend) e já
-     * devolve os tokens — o e-mail é confirmado depois, no primeiro
-     * login por código, não no cadastro em si.
+     * Passo 1 do cadastro: só o e-mail. Gera e envia o código — nada é
+     * gravado no banco ainda, pra não acumular conta de quem desiste no
+     * meio (decisão do time, 02/10 — Jordan/Dani).
      */
     @Transactional
-    public TokenResponse register(RegisterRequest request) {
+    public void requestRegistrationCode(RegisterCodeRequest request) {
         if (userRepository.existsByEmail(request.email())) {
             throw new ConflictException("Este e-mail já está cadastrado.");
         }
+        emailAccessCodeService.requestCode(request.email());
+    }
+
+    /**
+     * Passo 2 do cadastro: confirma o código (prova que é dono do
+     * e-mail) e só então grava o usuário de verdade.
+     */
+    @Transactional
+    public TokenResponse completeRegistration(RegisterVerifyRequest request) {
+        if (userRepository.existsByEmail(request.email())) {
+            throw new ConflictException("Este e-mail já está cadastrado.");
+        }
+
+        emailAccessCodeService.verifyCodeForEmail(request.email(), request.code());
 
         User user = User.builder()
                 .name(request.name())
@@ -80,7 +95,7 @@ public class AuthService {
         }
     }
 
-    private void saveOnboardingAnswersIfPresent(User user, RegisterRequest request) {
+    private void saveOnboardingAnswersIfPresent(User user, RegisterVerifyRequest request) {
         boolean answeredAnything = request.question1() != null
                 || request.question2() != null
                 || request.question3() != null;

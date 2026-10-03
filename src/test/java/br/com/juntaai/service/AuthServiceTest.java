@@ -1,7 +1,8 @@
 package br.com.juntaai.service;
 
 import br.com.juntaai.dto.auth.AccessCodeVerifyRequest;
-import br.com.juntaai.dto.auth.RegisterRequest;
+import br.com.juntaai.dto.auth.RegisterCodeRequest;
+import br.com.juntaai.dto.auth.RegisterVerifyRequest;
 import br.com.juntaai.entity.OnboardingAnswers;
 import br.com.juntaai.entity.RefreshToken;
 import br.com.juntaai.entity.User;
@@ -43,7 +44,7 @@ class AuthServiceTest {
                 refreshTokenService, emailAccessCodeService, googleAuthService);
     }
 
-    private void stubTokenIssuance(User savedUser) {
+    private void stubTokenIssuance() {
         when(jwtUtil.generateAccessToken(any(), any(), any())).thenReturn("access-token");
         when(jwtUtil.getAccessTokenExpirationSeconds()).thenReturn(900L);
 
@@ -53,8 +54,28 @@ class AuthServiceTest {
     }
 
     @Test
-    void deveRegistrarUsuarioSemSenhaComWhatsappEEmitirTokens() {
-        RegisterRequest request = new RegisterRequest("Ana", "ana@email.com", "11999998888", null, null, null);
+    void deveEnviarCodigoDeCadastroQuandoEmailAindaNaoExiste() {
+        when(userRepository.existsByEmail("ana@email.com")).thenReturn(false);
+
+        authService.requestRegistrationCode(new RegisterCodeRequest("ana@email.com"));
+
+        verify(emailAccessCodeService).requestCode("ana@email.com");
+    }
+
+    @Test
+    void naoDeveEnviarCodigoDeCadastroParaEmailJaExistente() {
+        when(userRepository.existsByEmail("ana@email.com")).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.requestRegistrationCode(new RegisterCodeRequest("ana@email.com")))
+                .isInstanceOf(ConflictException.class);
+
+        verify(emailAccessCodeService, never()).requestCode(any());
+    }
+
+    @Test
+    void deveCriarContaSoDepoisDeConfirmarCodigoEEmitirTokens() {
+        RegisterVerifyRequest request = new RegisterVerifyRequest(
+                "Ana", "ana@email.com", "11999998888", "123456", null, null, null);
 
         when(userRepository.existsByEmail("ana@email.com")).thenReturn(false);
         when(userRepository.save(any(User.class))).thenAnswer(inv -> {
@@ -62,19 +83,19 @@ class AuthServiceTest {
             u.setId(UUID.randomUUID());
             return u;
         });
-        stubTokenIssuance(null);
+        stubTokenIssuance();
 
-        var response = authService.register(request);
+        var response = authService.completeRegistration(request);
 
+        verify(emailAccessCodeService).verifyCodeForEmail("ana@email.com", "123456");
         assertThat(response.accessToken()).isEqualTo("access-token");
-        assertThat(response.refreshToken()).isEqualTo("refresh-token-value");
         verify(onboardingAnswersRepository, never()).save(any());
     }
 
     @Test
     void deveSalvarRespostasDeOnboardingQuandoInformadas() {
-        RegisterRequest request = new RegisterRequest(
-                "Bia", "bia@email.com", "11988887777",
+        RegisterVerifyRequest request = new RegisterVerifyRequest(
+                "Bia", "bia@email.com", "11988887777", "123456",
                 "Controlar melhor meus gastos", "Anoto tudo", "Economizar");
 
         when(userRepository.existsByEmail("bia@email.com")).thenReturn(false);
@@ -83,9 +104,9 @@ class AuthServiceTest {
             u.setId(UUID.randomUUID());
             return u;
         });
-        stubTokenIssuance(null);
+        stubTokenIssuance();
 
-        authService.register(request);
+        authService.completeRegistration(request);
 
         ArgumentCaptor<OnboardingAnswers> captor = ArgumentCaptor.forClass(OnboardingAnswers.class);
         verify(onboardingAnswersRepository).save(captor.capture());
@@ -93,21 +114,25 @@ class AuthServiceTest {
     }
 
     @Test
-    void naoDevePermitirRegistroComEmailJaCadastrado() {
-        RegisterRequest request = new RegisterRequest("Ana", "ana@email.com", "11999998888", null, null, null);
+    void naoDeveCriarContaSeEmailJaFoiCadastradoEntreOEnvioEAConfirmacao() {
+        RegisterVerifyRequest request = new RegisterVerifyRequest(
+                "Ana", "ana@email.com", "11999998888", "123456", null, null, null);
+
         when(userRepository.existsByEmail("ana@email.com")).thenReturn(true);
 
-        assertThatThrownBy(() -> authService.register(request))
+        assertThatThrownBy(() -> authService.completeRegistration(request))
                 .isInstanceOf(ConflictException.class);
+
+        verify(emailAccessCodeService, never()).verifyCodeForEmail(any(), any());
     }
 
     @Test
-    void deveEmitirTokensAposVerificarCodigoDeAcesso() {
+    void deveEmitirTokensAposVerificarCodigoDeAcessoNoLogin() {
         User user = User.builder().name("Ana").email("ana@email.com").build();
         user.setId(UUID.randomUUID());
 
         when(emailAccessCodeService.verifyCode("ana@email.com", "123456")).thenReturn(user);
-        stubTokenIssuance(user);
+        stubTokenIssuance();
 
         var response = authService.verifyAccessCode(new AccessCodeVerifyRequest("ana@email.com", "123456"));
 
@@ -120,7 +145,7 @@ class AuthServiceTest {
         user.setId(UUID.randomUUID());
 
         when(googleAuthService.authenticate("id-token-valido")).thenReturn(user);
-        stubTokenIssuance(user);
+        stubTokenIssuance();
 
         var response = authService.loginWithGoogle("id-token-valido");
 

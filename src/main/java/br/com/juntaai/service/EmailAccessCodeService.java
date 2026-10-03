@@ -17,10 +17,6 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.List;
 
-/**
- * Login sem senha via código de 6 dígitos enviado por e-mail — espelha
- * src/components/Login/LoginForm.jsx (etapa "code") no frontend.
- */
 @Service
 @RequiredArgsConstructor
 public class EmailAccessCodeService {
@@ -50,8 +46,13 @@ public class EmailAccessCodeService {
         emailSender.sendAccessCode(email, code);
     }
 
+    /**
+     * Só valida e consome o código — não exige usuário existente. Usado
+     * no cadastro (onde o usuário ainda não existe) e, por dentro, no
+     * login por código (verifyCode).
+     */
     @Transactional
-    public User verifyCode(String email, String code) {
+    public void verifyCodeForEmail(String email, String code) {
         List<EmailAccessCode> candidates = codeRepository.findByEmailAndUsedFalseOrderByCreatedAtDesc(email);
 
         EmailAccessCode match = candidates.stream()
@@ -63,6 +64,12 @@ public class EmailAccessCodeService {
 
         match.setUsed(true);
         codeRepository.save(match);
+    }
+
+    /** Login por código: exige que já exista uma conta para esse e-mail. */
+    @Transactional
+    public User verifyCode(String email, String code) {
+        verifyCodeForEmail(email, code);
 
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND,

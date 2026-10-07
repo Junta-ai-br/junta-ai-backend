@@ -14,11 +14,28 @@
     (`EmailAccessCodeService`). Só funciona para contas já cadastradas.
   - Access token JWT (15 min) + refresh token opaco revogável, exatamente
     como antes — essa parte não mudou com a troca do mecanismo de login.
-- 🟡 **Envio de e-mail real**: ainda não configurado. A implementação
-  ativa (`ConsoleEmailSender`) só registra o código no log — funciona
-  para desenvolvimento, mas **não pode ir para produção assim**. Quando
-  o provedor for decidido (Azure Communication Services é o sugerido,
-  por já estarmos na Azure), basta implementar `EmailSender` de novo.
+- ✅ **Envio de e-mail real**: `GmailEmailSender` usa Spring Mail e SMTP
+  do Gmail/Google Workspace exclusivamente para entregar o código recebido.
+  Geração do OTP, hash BCrypt, expiração, uso único e validação continuam
+  no backend (`EmailAccessCodeService`); Gmail não autentica nem emite tokens.
+  Configure `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD` e
+  `MAIL_FROM` no ambiente, sem versionar credenciais. O corpo usa a mesma
+  propriedade `auth.access-code.expiration-minutes` da validação.
+  A conexão exige STARTTLS e possui limites de espera de cinco segundos.
+  Falhas retornam HTTP 503 com mensagem amigável, sem registrar código,
+  destinatário, credenciais ou detalhes da exceção SMTP.
+  `EmailSenderConfig` registra exatamente um `EmailSender`: Gmail com
+  configuração completa; console somente com profile `local` e/ou `dev`
+  explicitamente ativo, sem outros profiles e sem usuário, senha ou remetente
+  SMTP preenchidos. O console imprime o código para testes locais.
+  Não existe profile de produção explícito: sem profile, em qualquer outro
+  profile (incluindo `docker`, `prod` e `production`) ou com credenciais
+  parciais, a configuração incompleta impede a inicialização.
+  No Google, habilite a verificação em duas etapas e gere uma senha de app
+  quando disponível para a conta; use-a em `MAIL_PASSWORD`, nunca a senha
+  normal da conta. A política do Workspace pode restringir senhas de app.
+  `MAIL_FROM` deve ser a conta ou um alias autorizado; o ambiente precisa
+  permitir saída para o servidor SMTP na porta configurada.
 - 🟡 **Cadastro sem verificação de e-mail**: `/auth/register` cria a
   conta sem confirmar que o e-mail pertence a quem está cadastrando —
   espelha o comportamento atual do frontend (a Etapa 2 de onboarding não

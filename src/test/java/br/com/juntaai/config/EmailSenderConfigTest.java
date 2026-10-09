@@ -3,21 +3,28 @@ package br.com.juntaai.config;
 import br.com.juntaai.service.email.ConsoleEmailSender;
 import br.com.juntaai.service.email.EmailSender;
 import br.com.juntaai.service.email.GmailEmailSender;
+import br.com.juntaai.service.email.PublicFormMailService;
+import br.com.juntaai.service.email.FormOrigin;
+import br.com.juntaai.dto.form.PublicFormRequest;
+import br.com.juntaai.exception.ApiException;
+import org.springframework.http.HttpStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration;
+import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class EmailSenderConfigTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(MailSenderAutoConfiguration.class))
+            .withConfiguration(AutoConfigurations.of(MailSenderAutoConfiguration.class, ValidationAutoConfiguration.class))
             .withUserConfiguration(EmailSenderConfig.class, EmailPackageScan.class)
             .withPropertyValues("spring.mail.host=smtp.gmail.com", "spring.mail.port=587",
                     "auth.access-code.expiration-minutes=7");
@@ -43,6 +50,10 @@ class EmailSenderConfigTest {
         runner.withPropertyValues("spring.profiles.active=" + profiles).run(context -> {
             assertThat(context).hasNotFailed().hasSingleBean(EmailSender.class);
             assertThat(context.getBean(EmailSender.class)).isInstanceOf(ConsoleEmailSender.class);
+            assertThatThrownBy(() -> context.getBean(PublicFormMailService.class).send(FormOrigin.CONTACT,
+                    new PublicFormRequest("Ana", "ana@example.com", "faq", null, "Olá")))
+                    .isInstanceOf(ApiException.class)
+                    .satisfies(ex -> assertThat(((ApiException) ex).getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
         });
     }
 

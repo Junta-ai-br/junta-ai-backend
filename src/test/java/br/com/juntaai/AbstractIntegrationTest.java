@@ -9,8 +9,11 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.autoconfigure.mail.MailProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -18,7 +21,9 @@ import static org.mockito.Mockito.doAnswer;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK,
+        properties = "management.health.mail.enabled=false")
+@EnableConfigurationProperties(MailProperties.class)
 @AutoConfigureMockMvc
 public abstract class AbstractIntegrationTest {
 
@@ -30,6 +35,10 @@ public abstract class AbstractIntegrationTest {
 
     @MockBean
     protected EmailSender emailSender;
+
+    /** Bloqueia qualquer envio SMTP real, inclusive pelos formulários públicos. */
+    @MockBean
+    protected JavaMailSender javaMailSender;
 
     /**
      * Executa o cadastro completo (passo 1 + passo 2) e devolve o

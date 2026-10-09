@@ -9,6 +9,7 @@ Este repositório implementa a arquitetura definida em:
 - `junta-ai-estrutura-repositorios-e-banco.pdf`
 
 Documentação técnica detalhada em [`docs/`](docs/):
+Formulários públicos, variáveis Azure e teste em produção: [public-forms.md](docs/public-forms.md).
 [architecture.md](docs/architecture.md) ·
 [database.md](docs/database.md) ·
 [api.md](docs/api.md) ·

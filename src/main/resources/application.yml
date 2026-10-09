@@ -40,6 +40,7 @@ spring:
     baseline-on-migrate: true
 
 server:
+  forward-headers-strategy: none
   port: ${SERVER_PORT:8080}
 
 jwt:
@@ -65,6 +66,13 @@ auth:
 app:
   mail:
     from: ${MAIL_FROM:}
+    contact-to: ${CONTACT_EMAIL_TO:}
+  public-forms:
+    rate-limit:
+      per-client: ${PUBLIC_FORMS_RATE_LIMIT_PER_CLIENT:5}
+      global: ${PUBLIC_FORMS_RATE_LIMIT_GLOBAL:100}
+      window-seconds: ${PUBLIC_FORMS_RATE_LIMIT_WINDOW_SECONDS:600}
+      max-clients: ${PUBLIC_FORMS_RATE_LIMIT_MAX_CLIENTS:10000}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
 

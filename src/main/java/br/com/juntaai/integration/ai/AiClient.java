@@ -40,7 +40,7 @@ public class AiClient {
                     .retrieve()
                     .body(ProcessingResult.class);
         } catch (Exception ex) {
-            log.warn("Falha ao chamar o serviço de IA ({}): {}", processPath, ex.getMessage());
+            log.warn("ai_service_unavailable");
             throw new AiServiceUnavailableException(
                     "O assistente está indisponível no momento. Tente novamente em instantes.");
         }

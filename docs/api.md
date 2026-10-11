@@ -107,3 +107,22 @@ principais:
 (padrão 15s). Se o serviço de IA não responder dentro desses limites ou
 estiver fora do ar, o Backend responde `503 Service Unavailable` com uma
 mensagem amigável — nunca deixa a requisição do usuário pendurada.
+
+### Incremento I3 local — execução durável e composição separada (revisão pendente)
+
+O backend passa a reservar action_id único e registrar ação/resultado associado
+ao usuário/conversa/mensagem, atomicamente com o efeito financeiro. Segunda chamada
+AI ocorre depois do commit. Repetição correspondente recupera recibo; conteúdo ou
+associação divergente é rejeitado. DTOs/endpoints acima permanecem os mesmos.
+
+Após execução commitada, indisponibilidade/composição inválida da IA retorna uma
+resposta backend segura com actionExecuted e composição pendente, sem rollback ou
+reexecução. O próximo POST de mensagem retoma o recibo antes de interpretar novo
+texto financeiro; actionExecuted pode se referir à execução anterior recuperada.
+Falha da primeira chamada ainda retorna 503. Pendência não é apagada por response
+sem substituição explícita ou por erro de composição.
+
+I3 permanece parcial: não há idempotência lógica de mensagens com action_ids
+diferentes, consentimento autenticado ou retomada IA de recibo expirado. A proteção
+execution_confirmation_stale permanece. Recorrência/correção/categoria seguem
+indisponíveis. Evidências, limites e decisões em [i3-audit.md](i3-audit.md).

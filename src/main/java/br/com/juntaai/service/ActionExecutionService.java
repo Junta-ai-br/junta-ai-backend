@@ -61,6 +61,7 @@ public class ActionExecutionService {
                 content, conversation.getPendingState());
         ActionExecution execution = executions.findByActionId(action.action_id()).orElseThrow();
         if (!execution.getUserId().equals(userId) || !execution.getConversationId().equals(conversationId)
+                || !execution.getUserMessageId().equals(messageId)
                 || !execution.getActionJson().equals(content)) {
             throw new BusinessRuleException("action_conflict");
         }

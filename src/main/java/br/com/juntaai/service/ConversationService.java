@@ -15,6 +15,9 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ConversationService {
 
+    private static final String RECOVERY_NOTICE = "Sua nova mensagem não foi processada. Esta resposta se refere à operação anterior. "
+            + "Para processar a nova intenção, envie-a novamente após a conclusão desta recuperação. ";
+
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
     private final UserRepository userRepository;
@@ -47,7 +50,7 @@ public class ConversationService {
     public ChatReplyResponse sendMessage(UUID userId, UUID conversationId, ChatMessageRequest request) {
         var turn = turns.begin(userId, conversationId, request.message());
         var receipt = executions.pendingReceipt(userId, conversationId);
-        if (receipt != null) return composeReceipt(userId, conversationId, turn, receipt);
+        if (receipt != null) return composeReceipt(userId, conversationId, turn, receipt, true);
 
         var firstCall = new AIServiceRequest(UUID.randomUUID().toString(), "1", conversationId.toString(),
                 request.message(), turn.context(), turn.pending(), null, turn.snapshot(), null);
@@ -60,7 +63,7 @@ public class ConversationService {
                 // Proxy has rolled back or outcome is uncertain: never leak SQL/payload or rerun here.
                 throw new br.com.juntaai.exception.AiServiceUnavailableException("execution_result_unconfirmed");
             }
-            return composeReceipt(userId, conversationId, turn, receipt);
+            return composeReceipt(userId, conversationId, turn, receipt, false);
         }
         if (result.action_request() != null) throw new br.com.juntaai.exception.AiServiceUnavailableException("ai_result_invalid");
         boolean replace = result.pending_operation() != null
@@ -71,7 +74,7 @@ public class ConversationService {
     }
 
     private ChatReplyResponse composeReceipt(UUID userId, UUID conversationId,
-                                            ConversationTurnStore.Turn turn, ActionExecutionService.Receipt receipt) {
+                                            ConversationTurnStore.Turn turn, ActionExecutionService.Receipt receipt, boolean recovering) {
         boolean executed = receipt.confirmation().status() == ExecutionStatus.SUCCESSFUL;
         var confirmCall = new AIServiceRequest(UUID.randomUUID().toString(), "1", conversationId.toString(),
                 receipt.originalMessage(), turn.context(), null, receipt.action(), null, receipt.confirmation());
@@ -91,8 +94,14 @@ public class ConversationService {
         }
         // Only clear the pending operation if the same state still belongs to this execution.
         boolean clearPending = complete && executed && java.util.Objects.equals(turn.pendingBefore(), receipt.pendingStateBefore());
-        return turns.finish(userId, conversationId, turn, reply, null, clearPending,
-                receipt.actionId(), complete, executed);
+        ChatReplyResponse result = turns.finish(userId, conversationId, turn, reply, null, clearPending,
+                receipt.actionId(), complete, executed && !recovering);
+        if (!recovering) return result;
+        // Persist only the operation's composition/fallback. This call's trusted flow determines
+        // the contextual HTTP notice, independently of which turn finalized the receipt.
+        MessageResponse accepted = result.assistantMessage();
+        return new ChatReplyResponse(conversationId, result.userMessage(),
+                new MessageResponse(accepted.id(), accepted.role(), RECOVERY_NOTICE + accepted.content(), accepted.createdAt()), false);
     }
 
     private ProcessingResult correlated(AIServiceRequest sent, ProcessingResult received) {

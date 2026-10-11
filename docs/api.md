@@ -118,7 +118,28 @@ associação divergente é rejeitado. DTOs/endpoints acima permanecem os mesmos.
 Após execução commitada, indisponibilidade/composição inválida da IA retorna uma
 resposta backend segura com actionExecuted e composição pendente, sem rollback ou
 reexecução. O próximo POST de mensagem retoma o recibo antes de interpretar novo
-texto financeiro; actionExecuted pode se referir à execução anterior recuperada.
+texto financeiro. Na recuperação, actionExecuted=false: a entrada atual não foi
+processada, e o aviso backend explica que o resultado pertence à operação anterior.
+Não há execução automática nem fila/promessa de processamento posterior; a nova
+intenção precisa ser reenviada quando a recuperação terminar. No turno originário,
+actionExecuted=true continua significando efeito financeiro confirmado, mesmo se
+a composição falhar. O recibo originário continua preservado.
+
+A finalização usa lock transacional curto de conversa/recibo e associação interna
+composition_message_id (V5). Uma única resposta final é persistida por recibo;
+chamadas tardias reutilizam a resposta aceita, inclusive após timeout ou alteração
+de pendência. Chamadas AI concorrentes não são deduplicadas. A composição aceita
+é persistida sem o aviso contextual da entrada nova, independentemente do vencedor.
+O turno originário recebe esse resultado sem aviso de entrada não processada e
+mantém actionExecuted=true quando o efeito financeiro foi confirmado. Toda chamada
+usada apenas para recuperação recebe actionExecuted=false e o aviso no conteúdo
+do MessageResponse HTTP. Esse conteúdo inclui um prefixo backend que não faz
+parte da mensagem armazenada: id, role e createdAt são os mesmos, e GET messages
+retorna o conteúdo persistido, sem o prefixo contextual. Acrescentar o aviso não
+grava mensagem nem finaliza novamente o recibo; não há inspeção/remoção de prefixos
+ou comparação de texto AI para determinar o contexto da chamada.
+Falhas de composição podem continuar registrando fallbacks no histórico; esses
+fallbacks não são finalizações. Não há reserva remota ou lock durante chamadas AI.
 Falha da primeira chamada ainda retorna 503. Pendência não é apagada por response
 sem substituição explícita ou por erro de composição.
 

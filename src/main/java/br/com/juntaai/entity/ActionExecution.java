@@ -24,4 +24,5 @@ public class ActionExecution extends BaseEntity {
     @Column(name = "effect_id") private UUID effectId;
     @Column(name = "pending_state_before", columnDefinition = "TEXT") private String pendingStateBefore;
     @Column(name = "composition_pending", nullable = false) private boolean compositionPending;
+    @Column(name = "composition_message_id") private UUID compositionMessageId;
 }

@@ -35,6 +35,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
     @Autowired private ConversationService conversations;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PlatformTransactionManager transactionManager;
+    @Autowired private br.com.juntaai.security.JwtUtil jwt;
     @SpyBean private ConversationTurnStore turns;
     @MockBean private AiClient ai;
     private UUID user, conversation, message;
@@ -245,7 +246,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
         assertThat(pending()).isTrue();
         assertThat(jdbc.queryForObject("select pending_state from conversations where id=?", String.class, conversation)).isEqualTo(pending);
         var resumed = conversations.sendMessage(user, conversation, new ChatMessageRequest("retomar"));
-        assertThat(resumed.actionExecuted()).isTrue(); assertThat(pending()).isFalse();
+        assertThat(resumed.actionExecuted()).isFalse(); assertThat(pending()).isFalse();
         assertThat(interpretations.get()).isEqualTo(1); assertThat(compositions.get()).isEqualTo(2);
         assertThat(effects()).isEqualTo(1);
         assertThat(jdbc.queryForObject("select pending_state from conversations where id=?", String.class, conversation)).isNull();
@@ -255,7 +256,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
         var action = action(UUID.randomUUID().toString(), new BigDecimal("20.00")); execute(action);
         when(ai.process(any())).thenAnswer(inv -> response(inv.getArgument(0), "execution_confirmation_stale", null));
         var late = conversations.sendMessage(user, conversation, new ChatMessageRequest("retomar"));
-        assertThat(late.actionExecuted()).isTrue(); assertThat(pending()).isTrue(); assertThat(effects()).isEqualTo(1);
+        assertThat(late.actionExecuted()).isFalse(); assertThat(pending()).isTrue(); assertThat(effects()).isEqualTo(1);
         doAnswer(inv -> response(inv.getArgument(0), null,
                 action(UUID.randomUUID().toString(), new BigDecimal("999.00")))).when(ai).process(any());
         conversations.sendMessage(user, conversation, new ChatMessageRequest("retomar"));
@@ -271,5 +272,335 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
         conversations.sendMessage(user, conversation, new ChatMessageRequest("synthetic"));
         assertThat(jdbc.queryForObject("select pending_state from conversations where id=?", String.class, conversation)).isEqualTo(pending);
         assertThat(effects()).isZero();
+    }
+
+    @Test void sameActionWithDifferentOriginMessageConflictsEvenInSameConversation() {
+        var original = action(UUID.randomUUID().toString(), new BigDecimal("20.00"));
+        execute(original);
+        UUID another = turns.begin(user, conversation, "gastei R$ 80 no mercado").messageId();
+        assertThatThrownBy(() -> executions.execute(user, conversation, another, "new-callback", original, null))
+                .isInstanceOf(BusinessRuleException.class).hasMessage("action_conflict");
+        assertThat(execute(original).originalRequestId()).isEqualTo("backend-origin");
+        assertThat(jdbc.queryForObject("select user_message_id from action_executions where action_id=?",
+                UUID.class, original.action_id())).isEqualTo(message);
+        assertThat(effects()).isEqualTo(1); assertThat(records()).isEqualTo(1);
+    }
+
+    @Test void newFinancialMessageDuringPendingCompositionIsNotExecutedOnSuccess() {
+        newFinancialMessageDuringPendingComposition(false);
+    }
+
+    @Test void newFinancialMessageDuringPendingCompositionIsNotExecutedOnFailure() {
+        newFinancialMessageDuringPendingComposition(true);
+    }
+
+    private void newFinancialMessageDuringPendingComposition(boolean failRecovery) {
+        var original = action(UUID.randomUUID().toString(), new BigDecimal("20.00"));
+        AtomicInteger calls = new AtomicInteger();
+        when(ai.process(any())).thenAnswer(inv -> {
+            AIServiceRequest req = inv.getArgument(0);
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            if (calls.getAndIncrement() == 0) return response(req, null, original);
+            assertThat(req.execution_confirmation()).isNotNull();
+            assertThat(req.user_message()).isEqualTo("gastei R$ 20");
+            if (calls.get() == 2 || failRecovery) throw new AiServiceUnavailableException("controlled_timeout");
+            return response(req, "execution_confirmed", null);
+        });
+        var first = conversations.sendMessage(user, conversation, new ChatMessageRequest("gastei R$ 20"));
+        var fallback = first.assistantMessage();
+        var before = financialEvidence(original.action_id());
+        var result = conversations.sendMessage(user, conversation, new ChatMessageRequest("gastei R$ 80 no mercado"));
+        assertThat(result.actionExecuted()).isFalse();
+        assertThat(result.userMessage().content()).isEqualTo("gastei R$ 80 no mercado");
+        assertThat(result.assistantMessage().content()).contains("Sua nova mensagem não foi processada", "operação anterior");
+        assertThat(pending()).isEqualTo(failRecovery);
+        assertThat(jdbc.queryForObject("select content from messages where id=?", String.class, fallback.id()))
+                .isEqualTo(fallback.content()).contains("pendente");
+        assertThat(financialEvidence(original.action_id())).isEqualTo(before);
+        if (failRecovery) {
+            assertThat(jdbc.queryForObject("select composition_message_id from action_executions where action_id=?",
+                    UUID.class, original.action_id())).isNull();
+        } else {
+            assertNeutralFinalization(original.action_id(), result.assistantMessage().id());
+            assertThat(result.assistantMessage().id()).isNotEqualTo(fallback.id());
+        }
+        assertThat(effects()).isEqualTo(1); assertThat(records()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select amount from transactions where user_id=?", BigDecimal.class, user))
+                .isEqualByComparingTo("20.00");
+        assertThat(jdbc.queryForObject("select count(*) from messages where conversation_id=? and role='USER'",
+                Integer.class, conversation)).isEqualTo(3);
+        assertThat(calls.get()).isEqualTo(3);
+    }
+
+    @Test void simultaneousResumptionsAcceptOneCompositionAndReturnSameStoredMessage() throws Exception {
+        execute(action(UUID.randomUUID().toString(), new BigDecimal("20.00")));
+        var barrier = new CyclicBarrier(2);
+        var originalReceipt = executions.pendingReceipt(user, conversation);
+        var before = financialEvidence(originalReceipt.actionId());
+        AtomicInteger calls = new AtomicInteger();
+        when(ai.process(any())).thenAnswer(inv -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            assertThat(pending()).isTrue();
+            calls.incrementAndGet();
+            barrier.await(10, TimeUnit.SECONDS);
+            return response(inv.getArgument(0), "execution_confirmed", null);
+        });
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var a = pool.submit(() -> sendThroughHttp("gastei R$ 80"));
+            var b = pool.submit(() -> sendThroughHttp("gastei R$ 90"));
+            var first = a.get(20, TimeUnit.SECONDS); var second = b.get(20, TimeUnit.SECONDS);
+            assertThat(first.assistantMessage().id()).isEqualTo(second.assistantMessage().id());
+            assertNeutralFinalization(originalReceipt.actionId(), first.assistantMessage().id());
+            assertThat(financialEvidence(originalReceipt.actionId())).isEqualTo(before);
+            assertThat(before.get("user_message_id")).isEqualTo(message);
+            assertThat(first.userMessage().content()).isEqualTo("gastei R$ 80");
+            assertThat(second.userMessage().content()).isEqualTo("gastei R$ 90");
+            assertThat(first.assistantMessage().content()).contains("envie-a novamente");
+            assertThat(second.assistantMessage().content()).contains("envie-a novamente");
+            assertThat(first.actionExecuted()).isFalse(); assertThat(second.actionExecuted()).isFalse();
+            assertThat(first.assistantMessage().content()).contains("não foi processada").doesNotContain("pendente");
+            assertThat(second.assistantMessage().content()).contains("não foi processada").doesNotContain("pendente");
+        }
+        assertThat(calls.get()).isEqualTo(2); // Only finalization, not remote calls, is deduplicated.
+        assertThat(pending()).isFalse(); assertThat(effects()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from messages where conversation_id=? and role='ASSISTANT'",
+                Integer.class, conversation)).isEqualTo(1);
+    }
+
+    @Test void lateSuccessfulCompositionCannotOverwriteNewerPendingReceipt() throws Exception {
+        lateCompositionAfterWinner(false, true);
+    }
+
+    @Test void lateFailedCompositionReturnsCompletedResultWithoutFalsePending() throws Exception {
+        lateCompositionAfterWinner(true, false);
+    }
+
+    private void lateCompositionAfterWinner(boolean lateFails, boolean replacePending) throws Exception {
+        var old = action(UUID.randomUUID().toString(), new BigDecimal("20.00")); execute(old);
+        var entered = new CountDownLatch(1); var release = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        when(ai.process(any())).thenAnswer(inv -> {
+            AIServiceRequest req = inv.getArgument(0);
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            if (calls.getAndIncrement() == 0) {
+                entered.countDown();
+                assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+                if (lateFails) throw new AiServiceUnavailableException("controlled_timeout");
+            }
+            return response(req, "execution_confirmed", null);
+        });
+        try (var pool = Executors.newFixedThreadPool(1)) {
+            var late = pool.submit(() -> conversations.sendMessage(user, conversation, new ChatMessageRequest("late")));
+            try {
+                assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
+                var winner = conversations.sendMessage(user, conversation, new ChatMessageRequest("winner"));
+                assertThat(pending()).isFalse();
+                String newerState = objectMapper.writeValueAsString(new PendingOperation(PendingState.AMOUNT,
+                        Operation.EXPENSE, null, List.of("monetary_value"), null));
+                ActionRequest newer = action(UUID.randomUUID().toString(), new BigDecimal("80.00"));
+                if (replacePending) {
+                    jdbc.update("update conversations set pending_state=? where id=?", newerState, conversation);
+                    var newTurn = turns.begin(user, conversation, "new origin");
+                    executions.execute(user, conversation, newTurn.messageId(), "new-origin", newer, newerState);
+                }
+                release.countDown();
+                var result = late.get(20, TimeUnit.SECONDS);
+                assertThat(result.assistantMessage().id()).isEqualTo(winner.assistantMessage().id());
+                assertThat(result.assistantMessage().content()).doesNotContain("pendente");
+                assertThat(result.actionExecuted()).isFalse();
+                if (replacePending) {
+                    assertThat(jdbc.queryForObject("select pending_state from conversations where id=?", String.class, conversation))
+                            .isEqualTo(newerState);
+                    assertThat(executions.pendingReceipt(user, conversation).actionId()).isEqualTo(newer.action_id());
+                }
+            } finally { release.countDown(); }
+        }
+        assertThat(effects()).isEqualTo(replacePending ? 2 : 1);
+        assertThat(jdbc.queryForObject("select count(*) from messages where conversation_id=? and role='ASSISTANT'",
+                Integer.class, conversation)).isEqualTo(1);
+    }
+
+    @Test void finalizationChecksOwnershipBeforeReusingStoredComposition() {
+        var original = action(UUID.randomUUID().toString(), new BigDecimal("20.00")); execute(original);
+        var turn = turns.begin(user, conversation, "synthetic");
+        UUID other = UUID.randomUUID(), otherConversation = UUID.randomUUID();
+        jdbc.update("insert into users(id,name,email) values(?,?,?)", other, "Other", other+"@test.invalid");
+        jdbc.update("insert into conversations(id,user_id) values(?,?)", otherConversation, other);
+        assertThatThrownBy(() -> turns.finish(other, conversation, turn, "reply", null, false, original.action_id(), true, false))
+                .isInstanceOf(ResourceNotFoundException.class);
+        var foreignTurn = turns.begin(other, otherConversation, "synthetic");
+        assertThatThrownBy(() -> turns.finish(other, otherConversation, foreignTurn, "reply", null, false, original.action_id(), true, false))
+                .isInstanceOf(BusinessRuleException.class).hasMessage("action_association_invalid");
+        assertThat(pending()).isTrue(); assertThat(effects()).isEqualTo(1);
+    }
+
+    @Test void rolledBackFinalizationLeavesNoReservationAndCanBeRetried() {
+        assertThat(org.springframework.aop.support.AopUtils.isAopProxy(turns)).isTrue();
+        assertThat(org.springframework.aop.support.AopUtils.isAopProxy(executions)).isTrue();
+        var original = action(UUID.randomUUID().toString(), new BigDecimal("20.00")); execute(original);
+        var turn = turns.begin(user, conversation, "synthetic");
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            turns.finish(user, conversation, turn, "rolled back", null, false, original.action_id(), true, false);
+            status.setRollbackOnly(); // Controlled interruption of the short finalization transaction.
+        });
+        assertThat(pending()).isTrue();
+        assertThat(jdbc.queryForObject("select composition_message_id from action_executions where action_id=?",
+                UUID.class, original.action_id())).isNull();
+        assertThat(jdbc.queryForObject("select count(*) from messages where conversation_id=? and role='ASSISTANT'",
+                Integer.class, conversation)).isZero();
+        var accepted = turns.finish(user, conversation, turn, "accepted", null, false, original.action_id(), true, false);
+        var repeated = turns.finish(user, conversation, turn, "late pending fallback", null, false, original.action_id(), false, false);
+        assertThat(repeated.assistantMessage().id()).isEqualTo(accepted.assistantMessage().id());
+        assertThat(repeated.assistantMessage().content()).isEqualTo("accepted");
+        assertThat(pending()).isFalse(); assertThat(effects()).isEqualTo(1);
+    }
+
+    @Test void lateFirstFinalizationPreservesChangedPendingState() throws Exception {
+        var original = action(UUID.randomUUID().toString(), new BigDecimal("20.00")); execute(original);
+        var entered = new CountDownLatch(1); var release = new CountDownLatch(1);
+        when(ai.process(any())).thenAnswer(inv -> {
+            entered.countDown();
+            assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+            return response(inv.getArgument(0), "execution_confirmed", null);
+        });
+        String changed = objectMapper.writeValueAsString(new PendingOperation(PendingState.AMOUNT,
+                Operation.INCOME, null, List.of("monetary_value"), null));
+        try (var pool = Executors.newFixedThreadPool(1)) {
+            var late = pool.submit(() -> conversations.sendMessage(user, conversation, new ChatMessageRequest("new input")));
+            try {
+                assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
+                jdbc.update("update conversations set pending_state=? where id=?", changed, conversation);
+                release.countDown();
+                assertThat(late.get(20, TimeUnit.SECONDS).actionExecuted()).isFalse();
+            } finally { release.countDown(); }
+        }
+        assertThat(jdbc.queryForObject("select pending_state from conversations where id=?", String.class, conversation)).isEqualTo(changed);
+        assertThat(pending()).isFalse(); assertThat(effects()).isEqualTo(1);
+    }
+
+
+    @Test void recoveryKeepsCurrentMessageNoticeWhenOriginalTurnWinsComposition() throws Exception {
+        originalAndRecoveryRace(false, false, false);
+    }
+
+    @Test void originalTurnHasNoRecoveryNoticeWhenRecoveryWinsAndOriginalAiSucceeds() throws Exception {
+        originalAndRecoveryRace(true, false, false);
+    }
+
+    @Test void originalTurnHasNoRecoveryNoticeWhenRecoveryWinsAndOriginalAiTimesOut() throws Exception {
+        originalAndRecoveryRace(true, true, false);
+    }
+
+    @Test void originalLateResponseAfterRecoveryWinnerPreservesNewerPendingState() throws Exception {
+        originalAndRecoveryRace(true, false, true);
+    }
+
+    private void originalAndRecoveryRace(boolean recoveryWins, boolean originalTimeout, boolean newerPending) throws Exception {
+        assertThat(org.springframework.aop.support.AopUtils.isAopProxy(turns)).isTrue();
+        assertThat(org.springframework.aop.support.AopUtils.isAopProxy(executions)).isTrue();
+        var original = action(UUID.randomUUID().toString(), new BigDecimal("20.00"));
+        var originalEntered = new CountDownLatch(1); var recoveryEntered = new CountDownLatch(1);
+        var releaseOriginal = new CountDownLatch(1); var releaseRecovery = new CountDownLatch(1);
+        AtomicInteger callbacks = new AtomicInteger();
+        when(ai.process(any())).thenAnswer(inv -> {
+            AIServiceRequest req = inv.getArgument(0);
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            if (req.execution_confirmation() == null) return response(req, null, original);
+            assertThat(req.user_message()).isEqualTo("gastei R$ 20");
+            assertThat(effects()).isEqualTo(1); assertThat(records()).isEqualTo(1);
+            if (callbacks.getAndIncrement() == 0) {
+                originalEntered.countDown();
+                assertThat(releaseOriginal.await(10, TimeUnit.SECONDS)).isTrue();
+                if (originalTimeout) throw new AiServiceUnavailableException("controlled_timeout");
+            } else {
+                recoveryEntered.countDown();
+                assertThat(releaseRecovery.await(10, TimeUnit.SECONDS)).isTrue();
+            }
+            return response(req, "execution_confirmed", null);
+        });
+        String changed = objectMapper.writeValueAsString(new PendingOperation(PendingState.AMOUNT,
+                Operation.INCOME, null, List.of("monetary_value"), null));
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var first = pool.submit(() -> sendThroughHttp("gastei R$ 20"));
+            try {
+                assertThat(originalEntered.await(10, TimeUnit.SECONDS)).isTrue();
+                var before = financialEvidence(original.action_id());
+                var recovering = pool.submit(() -> sendThroughHttp("gastei R$ 80"));
+                assertThat(recoveryEntered.await(10, TimeUnit.SECONDS)).isTrue();
+                if (recoveryWins) releaseRecovery.countDown(); else releaseOriginal.countDown();
+                var winner = (recoveryWins ? recovering : first).get(20, TimeUnit.SECONDS);
+                UUID acceptedId = winner.assistantMessage().id();
+                var historyBeforeLateResponse = conversations.listMessages(user, conversation);
+                if (newerPending) jdbc.update("update conversations set pending_state=? where id=?", changed, conversation);
+                if (recoveryWins) releaseOriginal.countDown(); else releaseRecovery.countDown();
+                var originResult = first.get(20, TimeUnit.SECONDS);
+                var recoveryResult = recovering.get(20, TimeUnit.SECONDS);
+                assertThat(originResult.actionExecuted()).isTrue();
+                assertThat(originResult.assistantMessage().content()).isEqualTo("synthetic reply");
+                assertThat(originResult.userMessage().content()).isEqualTo("gastei R$ 20");
+                assertThat(recoveryResult.actionExecuted()).isFalse();
+                assertThat(recoveryResult.assistantMessage().content()).startsWith("Sua nova mensagem não foi processada.")
+                        .contains("envie-a novamente").endsWith("synthetic reply").doesNotContain("pendente");
+                assertThat(recoveryResult.userMessage().content()).isEqualTo("gastei R$ 80");
+                assertThat(originResult.assistantMessage().id()).isEqualTo(acceptedId);
+                assertThat(recoveryResult.assistantMessage().id()).isEqualTo(acceptedId);
+                // PostgreSQL stores microseconds; the just-created entity may still carry nanoseconds.
+                assertThat(recoveryResult.assistantMessage().createdAt()).isCloseTo(originResult.assistantMessage().createdAt(),
+                        within(1, java.time.temporal.ChronoUnit.MICROS));
+                assertThat(financialEvidence(original.action_id())).isEqualTo(before);
+                assertThat(before.get("user_message_id")).isEqualTo(originResult.userMessage().id());
+                assertThat(conversations.listMessages(user, conversation)).isEqualTo(historyBeforeLateResponse);
+                assertNeutralFinalization(original.action_id(), acceptedId);
+                assertThat(jdbc.queryForObject("select pending_state from conversations where id=?", String.class, conversation))
+                        .isEqualTo(newerPending ? changed : null);
+                assertThat(jdbc.queryForObject("select count(*) from messages where conversation_id=? and role='USER'",
+                        Integer.class, conversation)).isEqualTo(3);
+            } finally { releaseOriginal.countDown(); releaseRecovery.countDown(); }
+        }
+        assertThat(callbacks.get()).isEqualTo(2); // Duplicate remote calls are intentionally allowed.
+        assertThat(pending()).isFalse(); assertThat(effects()).isEqualTo(1); assertThat(records()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select amount from transactions where user_id=?", BigDecimal.class, user))
+                .isEqualByComparingTo("20.00");
+        assertThat(jdbc.queryForObject("select count(*) from messages where conversation_id=? and role='ASSISTANT'",
+                Integer.class, conversation)).isEqualTo(1);
+    }
+
+    private java.util.Map<String, Object> financialEvidence(String actionId) {
+        return jdbc.queryForMap("select user_id,conversation_id,user_message_id,request_id,action_json,receipt_json,status,effect_id "
+                + "from action_executions where action_id=?", actionId);
+    }
+
+    private br.com.juntaai.dto.conversation.ChatReplyResponse sendThroughHttp(String content) throws Exception {
+        String token = jwt.generateAccessToken(user, user + "@test.invalid", br.com.juntaai.entity.Role.USER);
+        String json = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/conversations/" + conversation + "/messages")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new ChatMessageRequest(content))))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        return objectMapper.readValue(json, br.com.juntaai.dto.conversation.ChatReplyResponse.class);
+    }
+
+    private void assertNeutralFinalization(String actionId, UUID acceptedId) {
+        assertThat(jdbc.queryForObject("select composition_message_id from action_executions where action_id=?",
+                UUID.class, actionId)).isEqualTo(acceptedId);
+        assertThat(jdbc.queryForObject("select content from messages where id=?", String.class, acceptedId))
+                .isEqualTo("synthetic reply");
+        assertThat(jdbc.queryForObject("select count(*) from action_executions where action_id=? and composition_pending=false",
+                Integer.class, actionId)).isEqualTo(1);
+        assertThat(conversations.listMessages(user, conversation)).filteredOn(m -> m.id().equals(acceptedId))
+                .singleElement().satisfies(m -> assertThat(m.content()).isEqualTo("synthetic reply"));
+        try {
+            String token = jwt.generateAccessToken(user, user + "@test.invalid", br.com.juntaai.entity.Role.USER);
+            String json = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                            .get("/conversations/" + conversation + "/messages")
+                            .header("Authorization", "Bearer " + token))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                    .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+            var messages = objectMapper.readValue(json, br.com.juntaai.dto.conversation.MessageResponse[].class);
+            assertThat(messages).filteredOn(m -> m.id().equals(acceptedId)).singleElement()
+                    .satisfies(m -> assertThat(m.content()).isEqualTo("synthetic reply"));
+        } catch (Exception ex) { throw new AssertionError("HTTP history verification failed", ex); }
     }
 }

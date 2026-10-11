@@ -42,18 +42,32 @@ public class ConversationTurnStore {
                                     PendingOperation pending, boolean replacePending,
                                     String receiptActionId, boolean compositionComplete, boolean actionExecuted) {
         Conversation conversation = owned(userId, conversationId);
-        if (replacePending && Objects.equals(conversation.getPendingState(), turn.pendingBefore())) {
-            savePendingOperation(conversation, pending);
-        }
-        if (receiptActionId != null && compositionComplete) {
-            ActionExecution evidence = executions.findByActionId(receiptActionId).orElseThrow();
+        // Lock order matches execution: owned conversation, then receipt. No remote call here.
+        ActionExecution evidence = null;
+        if (receiptActionId != null) {
+            evidence = executions.findByActionId(receiptActionId).orElseThrow();
             if (!evidence.getUserId().equals(userId) || !evidence.getConversationId().equals(conversationId)) {
                 throw new BusinessRuleException("action_association_invalid");
             }
-            evidence.setCompositionPending(false);
+            if (!evidence.isCompositionPending()) {
+                // Even a late timeout must return the accepted result, not a pending fallback.
+                if (evidence.getCompositionMessageId() == null) {
+                    throw new BusinessRuleException("composition_evidence_invalid");
+                }
+                Message accepted = messageRepository.findById(evidence.getCompositionMessageId()).orElseThrow();
+                return new ChatReplyResponse(conversationId, turn.userMessage(), response(accepted), actionExecuted);
+            }
+        }
+        if (replacePending && Objects.equals(conversation.getPendingState(), turn.pendingBefore())
+                && (evidence == null || Objects.equals(conversation.getPendingState(), evidence.getPendingStateBefore()))) {
+            savePendingOperation(conversation, pending);
         }
         Message assistant = messageRepository.saveAndFlush(Message.builder().conversation(conversation)
                 .role(MessageRole.ASSISTANT).content(reply).build());
+        if (evidence != null && compositionComplete) {
+            evidence.setCompositionMessageId(assistant.getId());
+            evidence.setCompositionPending(false);
+        }
         return new ChatReplyResponse(conversationId, turn.userMessage(), response(assistant), actionExecuted);
     }
 

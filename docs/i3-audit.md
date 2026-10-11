@@ -171,3 +171,188 @@ O binário mvn usado é 3.9.16, exatamente a distribuição do mvnw.cmd. Compila
 foi feita primeiro na cópia para tornar o diff concreto antes da escrita fora do
 sandbox. Aplicação dos 13 arquivos conferiu hashes, branch/HEAD e paths; README,
 compose e índices foram preservados. Nenhum arquivo/configuração Git foi escrito.
+
+## 11/10/2026 — correção dos três achados da revisão I3
+
+**Implementado localmente / revisão pendente; I3 permanece parcial.** Os registros
+acima e suas contagens descrevem a etapa anterior, não esta execução.
+Base imediatamente anterior: feat/i3-backend-checkpoint,
+0ce87f54bc5be776c8d3ef62c465a23c660f4562; índice vazio; README.md e compose.yaml
+modificados preexistentes, preservados byte a byte. AI: feat/update-mcp-contract,
+426ae088b11336063a2a0fd1af8c50cb8809c3e5; índice vazio; cinco diffs locais
+de revisão preservados. Não houve mudança posterior de HEAD detectada.
+
+1. Antes, nova entrada recebia actionExecuted=true da operação anterior sem aviso.
+   Agora, entrada aceita durante recibo pendente continua no histórico, não é
+   interpretada/executada, retorna actionExecuted=false e aviso determinístico:
+   nova mensagem não processada, resultado da operação anterior, reenvio necessário.
+   O turno originário mantém sua semântica de efeito confirmado. Sem endpoint ou
+   campo público novo; sem classificação LLM de "retomar" ou processamento futuro.
+2. Antes, repetição de action_id não comparava user_message_id. Agora exige mesma
+   mensagem, usuário, conversa e JSON completo; outra mensagem gera action_conflict.
+   request_id de callback pode diferir, request_id/mensagem de origem não mudam.
+   Recuperação de composição usa pendingReceipt e o registro original, não execute.
+3. Antes, duas composições finalizavam o mesmo recibo e persistiam duas respostas.
+   Agora, finish bloqueia conversa e recibo na mesma ordem de execute, confere
+   associação e estado de finalização antes de qualquer alteração. Grava resposta,
+   composition_message_id e composition_pending=false atomicamente. O perdedor
+   reutiliza a resposta aceita, mesmo quando sua AI falha. Uma resposta antiga não
+   limpa pendência de outro recibo nem pendência cujo estado mudou. IA fica fora
+   dessa transação; chamadas AI duplicadas são possíveis. Não há lease/reserva
+   permanente: rollback deixa o recibo pendente e permite nova tentativa.
+
+V5 acrescenta referência privada e FK composta à mensagem final, sem mudar V4.
+Recibos concluídos antes de V5 não são inferidos/backfilled por heurística; não são
+selecionados por pendingReceipt. Caso interno inconsistente (recibo concluído sem
+mensagem final) falha fechado com composition_evidence_invalid.
+A implementação inicial desta retomada persistia o aviso quando a recuperação
+vencia. Isso contaminava a resposta do turno originário tardio; a corrida inversa
+foi corrigida na seção abaixo. Comportamento vigente: composição/fallback sem
+aviso contextual persistido; aviso somente no MessageResponse HTTP de cada chamada
+de recuperação, independentemente do vencedor. Mesmo id/timestamp, conteúdo HTTP
+contextual distinto do GET messages. Mensagens de usuário e fallbacks preservados;
+sem garantia de uma única mensagem de fallback em tentativas que continuam falhando.
+
+Constituição I/III/IV/V/IX/X/XI, SEC-02 (Em Validação técnica) e referências OWASP
+já adotadas foram consultadas: ownership pelo principal, autorização por recurso,
+menor privilégio, integridade, dados não promovidos a autoridade e validação fora
+do modelo permanecem. Não se declara auditoria OWASP integral ou conformidade.
+Sem consentimento, retomada expirada, deduplicação entre action_ids, S2S, adapter,
+MCP runtime, US2, novas operações, políticas, governança ou produção aprovados.
+Regra de expiração, atomicidade financeira/recibo e guardrails I1/I2 preservados.
+
+### Verificação desta retomada
+
+Execução em cópia isolada do estado imediatamente anterior, JDK 21.0.12 / Maven
+3.9.16 do wrapper/cache existente, PostgreSQL 17.11 descartável, cluster próprio
+em .i3-resumption/pgdata, 127.0.0.1:15484/junta_i3_disposable_20261011. Nenhum
+banco padrão, serviço Windows, compose ou banco compartilhado/produtivo usado.
+Migrações V1–V5 e Hibernate validate exercitados por Spring real.
+
+Maven verify completo passou: **145 testes, zero falhas/erros/skips**,
+incluindo 27 casos PostgreSQL/Spring reais (10 novos nesta retomada).
+JaCoCo: linhas 84.64%, instruções 85.04%,
+branches 75.28%. AI: **110 passed, 2 warnings, 1,91 s**,
+regressão de recibos/guardrails/contratos/I1/I2 executada novamente em Python 3.12.
+Os 135/110 anteriores permanecem evidências históricas, não resultados reutilizados.
+Comando backend: Maven 3.9.16, -o -q -Dmaven.repo.local=<cache existente>
+-Dlogging.level.root=WARN -Ddebug=false verify; I3_DISPOSABLE_DB=true e DB_URL
+exclusivamente do cluster acima. Comando AI: python -B -m pytest -q
+-p no:cacheprovider tests/integration/test_execution_confirmation.py
+tests/guardrails/test_confirmation_guardrails.py tests/contract/test_service_boundary.py
+tests/contract/test_i2_delivery.py tests/unit/test_i1_correlation.py.
+
+
+Cobertura nova observável: R$20 commitados + timeout + nova mensagem R$80 com
+sucesso/falha; conflito entre mensagens originárias; corrida de retomadas com
+barreira; callback tardio de sucesso/timeout após vencedor e após novo recibo;
+mudança de pendência antes da primeira finalização; rollback/retry sem reserva;
+isolamento; recuperação tardia quando o turno originário vence. AI é mock apenas
+de transporte/falhas; persistência, locks, proxies e commit são reais. Os fakes
+SMTP herdados impedem envio externo. Efeito, recibo, origem e histórico verificados.
+
+Rodadas intermediárias: acesso inicial ao cache/uv bloqueado pelo sandbox, testes
+executados com aprovação; campo do request no teste corrigido para user_message.
+Regressão detectou aviso aplicado ao turno originário: restringido à recuperação
+para preservar a resposta existente, sem enfraquecer a asserção de regressão.
+Avisos existentes: Flyway só declara suporte até PG16; Java agent/CDS/dialect;
+Starlette/httpx e AnyIO. Não modificadas dependências para ocultar avisos.
+
+Diff incremental novo: revisao/I3-findings-backend.diff no AI Service, contra
+snapshot imediatamente anterior desta retomada, excluindo README/compose locais.
+Referências AI: revisao/I3-findings-ai-docs.diff. Diffs anteriores preservados.
+Sem staging/commit/push/merge/PR/deploy ou alteração no GitHub.
+
+## 11/10/2026 — ajuste exclusivo da corrida inversa de composição
+
+**Implementado localmente / revisão humana pendente. I3 permanece parcial;
+produção sem aprovação.** Base imediatamente anterior inclui todas as correções
+locais da seção anterior, README/compose e V5 não rastreada. HEAD/branch backend
+feat/i3-backend-checkpoint/0ce87f5; AI feat/update-mcp-contract/426ae08; índices
+vazios. Snapshots novos .i3-inverse, separados dos anteriores .i3-resumption.
+
+Defeito reproduzido: recuperação vencedora gravava RECOVERY_NOTICE; o turno
+originário tardio recuperava esse texto com actionExecuted=true. Sucesso e timeout
+AI originários exibiam erroneamente "Sua nova mensagem não foi processada".
+Agora ConversationService envia apenas a composição/fallback da operação a
+finish. Após o retorno da transação, usa o booleano interno recovering, definido
+pelo ramo de orquestração confiável, para criar o aviso HTTP de cada recuperação.
+O turno originário usa a composição aceita sem esse aviso, com o booleano de
+execução confirmado. Não se remove prefixo por heurística, não se consulta texto
+AI para decidir contexto e não há classificação LLM de "retomar".
+
+Resultado persistido independente do vencedor: uma composição final por recibo.
+id/role/createdAt do MessageResponse HTTP permanecem os da mensagem aceita; seu
+content na recuperação tem o aviso adicional. GET messages retorna a composição
+persistida sem esse aviso. A projeção HTTP não escreve no histórico nem muda o
+recibo; a mensagem de entrada continua salva. A falha antes da conclusão pode
+gravar fallback neutro no histórico e deixar composition_pending=true. Se outra
+chamada já concluiu, até um timeout tardio retorna a mensagem vencedora, sem novo
+fallback ou finalização e sem falsa indicação de composição pendente.
+
+Nenhuma alteração em ConversationTurnStore, execução financeira, associação
+originária, ownership, locks/commit, V4/V5 ou DTOs/endpoints. Preservadas pendências
+mais recentes, expiração, código e guardrails I1/I2. Chamadas AI concorrentes
+continuam possíveis e fora das transações. A separação segue Constituição III/IV/
+V/IX/X/XI e SEC-02/referências OWASP já adotadas: autoridade backend, isolamento,
+integridade e contexto confiável separados de conteúdo. Sem alegação de auditoria
+integral/conformidade OWASP, novas políticas ou governança.
+
+### Evidências novas deste ajuste
+
+Reprodução contra o código imediatamente anterior: **2 testes, 2 falhas
+esperadas**, mostrando o aviso indevido no turno originário em sucesso e timeout.
+Com a correção: **36 testes afetados aprovados**; Maven verify completo passou
+com **148 testes, zero falhas/erros/skips**, incluindo 30 casos PostgreSQL/Spring
+reais (3 testes novos e cenários existentes fortalecidos). JaCoCo: linhas
+85.53%, instruções 85.94%, branches 75.00%.
+Nova regressão AI: **110 passed, dois warnings existentes, 0,92 s**, Python 3.12,
+contratos/recibos/guardrails/I1/I2. Contagens 145/110 da etapa anterior são históricas.
+POST e GET MockMvc exercitam serialização/controller/filtro JWT reais, além dos
+proxies e PostgreSQL. A projeção HTTP conserva metadados da resposta de finish;
+comparações entre criação e releitura consideram a precisão de microssegundos
+armazenada pelo PostgreSQL (entidade recém-criada pode conter nanossegundos).
+
+Execução inicial após restaurar a cópia fixada ainda usou bytecode antigo: o
+timestamp preservado fez o compilador incremental ignorar a fonte corrigida.
+Fonte recompilada, testes finais executados novamente. Ajustada a asserção de
+timestamp à precisão real do banco; nenhuma asserção de conteúdo/histórico/origem
+ou concorrência foi relaxada. Logs/XML separados em .i3-inverse preservam essas
+rodadas. Avisos Flyway/PG17, Java agent/CDS/dialect e Starlette/AnyIO preexistentes.
+Comando AI: python -B -m pytest -q -p no:cacheprovider
+tests/integration/test_execution_confirmation.py
+tests/guardrails/test_confirmation_guardrails.py tests/contract/test_service_boundary.py
+tests/contract/test_i2_delivery.py tests/unit/test_i1_correlation.py.
+
+
+PostgreSQL 17.11 descartável: cluster próprio .i3-inverse/pgdata, porta 15485,
+127.0.0.1/junta_i3_disposable_inverse_20261011, V1–V5 e Hibernate validate;
+JDK 21.0.12 / Maven 3.9.16 configurado no wrapper. Não usado banco compartilhado,
+produtivo ou padrão. Latches/barreira controlam vencedor e liberação tardia.
+Spring/proxies/locks/commit/persistência reais; AI simula só transporte/timeout.
+Mocks SMTP herdados impedem envio externo. Sem dependência nova.
+
+Cobertos: recuperação vence + sucesso originário; recuperação vence + timeout
+originário; turno originário vence; duas recuperações concorrentes; pendência nova
+após vencedor antes da resposta tardia. Em todos: único efeito financeiro, único
+recibo/finalização, reutilização do id aceito, booleanos e aviso corretos,
+composição armazenada neutra, origem/request_id/recibo/efeito preservados e GET
+messages inalterado pela resposta tardia. Fallback anterior permanece intacto
+quando a recuperação conclui; falha continuada não recebe composição final.
+
+Comando backend: Maven -o -q -Dmaven.repo.local=<cache existente>
+-Dlogging.level.root=WARN -Ddebug=false; afetados com
+-Dtest=ActionExecutionPostgresTest,ConversationServiceTest,ConversationIntegrationTest
+test; regressão completa verify. I3_DISPOSABLE_DB=true e DB_URL exclusivo acima.
+Avisos existentes de Flyway/PG17 e Java agent/CDS/dialect permanecem registrados;
+não alteradas dependências/configuração para ocultá-los.
+
+Limites: não há deduplicação de chamadas AI, consentimento, retomada expirada,
+S2S, deduplicação entre action_ids, adapter MCP, US2, políticas ou produção
+aprovados. O ajuste não reescreve composições históricas já persistidas pela
+versão anterior nem tenta remover avisos de seus textos. Sem migration nova.
+
+Diffs incrementais contra snapshots imediatamente anteriores deste ajuste:
+revisao/I3-inverse-backend.diff e revisao/I3-inverse-ai-docs.diff no AI Service.
+Todos os diffs/artefatos anteriores preservados. Sem staging/commit/push/merge/
+PR/deploy ou alterações GitHub; checkpoints permanecem manuais.

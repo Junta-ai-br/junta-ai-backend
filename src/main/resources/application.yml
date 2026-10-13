@@ -54,6 +54,7 @@ ai:
     chat-path: ${AI_SERVICE_CHAT_PATH:/v1/conversations/process}
     connect-timeout-ms: ${AI_CONNECT_TIMEOUT_MS:3000}
     read-timeout-ms: ${AI_READ_TIMEOUT_MS:15000}
+    message-processing-window-ms: ${AI_MESSAGE_PROCESSING_WINDOW_MS:60000}
 
 google:
   oauth:

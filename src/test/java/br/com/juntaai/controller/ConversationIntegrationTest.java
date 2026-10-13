@@ -101,6 +101,7 @@ class ConversationIntegrationTest extends AbstractIntegrationTest {
                 .thenAnswer(inv -> correlated(inv.getArgument(0), confirmedResult));
 
         mockMvc.perform(post("/conversations/" + conversationId + "/messages")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ChatMessageRequest("gastei 80 no mercado"))))
@@ -137,6 +138,7 @@ class ConversationIntegrationTest extends AbstractIntegrationTest {
         when(aiClient.process(any())).thenAnswer(inv -> correlated(inv.getArgument(0), clarificationResult));
 
         mockMvc.perform(post("/conversations/" + conversationId + "/messages")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ChatMessageRequest("gastei no mercado"))))
@@ -153,6 +155,7 @@ class ConversationIntegrationTest extends AbstractIntegrationTest {
         String tokenIntruso = registerAndGetAccessToken("Intruso3", uniqueEmail("intruso3"), "senhaForte123");
 
         mockMvc.perform(post("/conversations/" + conversationId + "/messages")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + tokenIntruso)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ChatMessageRequest("oi"))))

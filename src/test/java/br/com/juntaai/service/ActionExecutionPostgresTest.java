@@ -119,7 +119,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
         assertThat(jdbc.queryForObject("select current_amount from goals where id=?", BigDecimal.class, otherGoal)).isEqualByComparingTo("0");
         // Finish the negative receipt before proposing a separate ambiguous action.
         when(ai.process(any())).thenAnswer(inv -> response(inv.getArgument(0), "execution_confirmation_not_matching", null));
-        conversations.sendMessage(user, conversation, new ChatMessageRequest("retomar"));
+        conversations.sendMessage(user, conversation, new ChatMessageRequest("retomar"), UUID.randomUUID());
         assertThat(pending()).isFalse();
         for (int i = 0; i < 2; i++) jdbc.update("insert into goals(id,user_id,name,target_amount) values(?,?,'Target',100)", UUID.randomUUID(), user);
         assertThat(execute(contribution(UUID.randomUUID().toString())).confirmation().reason()).isEqualTo("goal_unresolved");
@@ -241,11 +241,11 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
             if (compositions.getAndIncrement() == 0) throw new AiServiceUnavailableException("synthetic_timeout");
             return response(req, "execution_confirmed", null);
         });
-        var first = conversations.sendMessage(user, conversation, new ChatMessageRequest("synthetic"));
+        var first = conversations.sendMessage(user, conversation, new ChatMessageRequest("synthetic"), UUID.randomUUID());
         assertThat(first.actionExecuted()).isTrue(); assertThat(first.assistantMessage().content()).contains("pendente");
         assertThat(pending()).isTrue();
         assertThat(jdbc.queryForObject("select pending_state from conversations where id=?", String.class, conversation)).isEqualTo(pending);
-        var resumed = conversations.sendMessage(user, conversation, new ChatMessageRequest("retomar"));
+        var resumed = conversations.sendMessage(user, conversation, new ChatMessageRequest("retomar"), UUID.randomUUID());
         assertThat(resumed.actionExecuted()).isFalse(); assertThat(pending()).isFalse();
         assertThat(interpretations.get()).isEqualTo(1); assertThat(compositions.get()).isEqualTo(2);
         assertThat(effects()).isEqualTo(1);
@@ -255,11 +255,11 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
     @Test void lateReceiptOrAiProposedSecondActionDoesNotRepeatExecution() {
         var action = action(UUID.randomUUID().toString(), new BigDecimal("20.00")); execute(action);
         when(ai.process(any())).thenAnswer(inv -> response(inv.getArgument(0), "execution_confirmation_stale", null));
-        var late = conversations.sendMessage(user, conversation, new ChatMessageRequest("retomar"));
+        var late = conversations.sendMessage(user, conversation, new ChatMessageRequest("retomar"), UUID.randomUUID());
         assertThat(late.actionExecuted()).isFalse(); assertThat(pending()).isTrue(); assertThat(effects()).isEqualTo(1);
         doAnswer(inv -> response(inv.getArgument(0), null,
                 action(UUID.randomUUID().toString(), new BigDecimal("999.00")))).when(ai).process(any());
-        conversations.sendMessage(user, conversation, new ChatMessageRequest("retomar"));
+        conversations.sendMessage(user, conversation, new ChatMessageRequest("retomar"), UUID.randomUUID());
         assertThat(pending()).isTrue(); assertThat(effects()).isEqualTo(1);
     }
 
@@ -269,7 +269,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
         String pending = objectMapper.writeValueAsString(prior);
         jdbc.update("update conversations set pending_state=? where id=?", pending, conversation);
         when(ai.process(any())).thenAnswer(inv -> response(inv.getArgument(0), "infrastructure_unavailable", null));
-        conversations.sendMessage(user, conversation, new ChatMessageRequest("synthetic"));
+        conversations.sendMessage(user, conversation, new ChatMessageRequest("synthetic"), UUID.randomUUID());
         assertThat(jdbc.queryForObject("select pending_state from conversations where id=?", String.class, conversation)).isEqualTo(pending);
         assertThat(effects()).isZero();
     }
@@ -306,10 +306,10 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
             if (calls.get() == 2 || failRecovery) throw new AiServiceUnavailableException("controlled_timeout");
             return response(req, "execution_confirmed", null);
         });
-        var first = conversations.sendMessage(user, conversation, new ChatMessageRequest("gastei R$ 20"));
+        var first = conversations.sendMessage(user, conversation, new ChatMessageRequest("gastei R$ 20"), UUID.randomUUID());
         var fallback = first.assistantMessage();
         var before = financialEvidence(original.action_id());
-        var result = conversations.sendMessage(user, conversation, new ChatMessageRequest("gastei R$ 80 no mercado"));
+        var result = conversations.sendMessage(user, conversation, new ChatMessageRequest("gastei R$ 80 no mercado"), UUID.randomUUID());
         assertThat(result.actionExecuted()).isFalse();
         assertThat(result.userMessage().content()).isEqualTo("gastei R$ 80 no mercado");
         assertThat(result.assistantMessage().content()).contains("Sua nova mensagem não foi processada", "operação anterior");
@@ -390,10 +390,10 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
             return response(req, "execution_confirmed", null);
         });
         try (var pool = Executors.newFixedThreadPool(1)) {
-            var late = pool.submit(() -> conversations.sendMessage(user, conversation, new ChatMessageRequest("late")));
+            var late = pool.submit(() -> conversations.sendMessage(user, conversation, new ChatMessageRequest("late"), UUID.randomUUID()));
             try {
                 assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
-                var winner = conversations.sendMessage(user, conversation, new ChatMessageRequest("winner"));
+                var winner = conversations.sendMessage(user, conversation, new ChatMessageRequest("winner"), UUID.randomUUID());
                 assertThat(pending()).isFalse();
                 String newerState = objectMapper.writeValueAsString(new PendingOperation(PendingState.AMOUNT,
                         Operation.EXPENSE, null, List.of("monetary_value"), null));
@@ -466,7 +466,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
         String changed = objectMapper.writeValueAsString(new PendingOperation(PendingState.AMOUNT,
                 Operation.INCOME, null, List.of("monetary_value"), null));
         try (var pool = Executors.newFixedThreadPool(1)) {
-            var late = pool.submit(() -> conversations.sendMessage(user, conversation, new ChatMessageRequest("new input")));
+            var late = pool.submit(() -> conversations.sendMessage(user, conversation, new ChatMessageRequest("new input"), UUID.randomUUID()));
             try {
                 assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
                 jdbc.update("update conversations set pending_state=? where id=?", changed, conversation);
@@ -574,6 +574,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
         String token = jwt.generateAccessToken(user, user + "@test.invalid", br.com.juntaai.entity.Role.USER);
         String json = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                         .post("/conversations/" + conversation + "/messages")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + token)
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ChatMessageRequest(content))))

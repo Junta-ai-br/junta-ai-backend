@@ -27,6 +27,7 @@ public class ActionExecutionService {
     private final ConversationRepository conversations;
     private final MessageRepository messages;
     private final ActionExecutionRepository executions;
+    private final MessageEntryRepository entries;
     private final CategoryRepository categories;
     private final GoalRepository goals;
     private final TransactionService transactions;
@@ -52,6 +53,15 @@ public class ActionExecutionService {
             throw new BusinessRuleException("action_invalid");
         }
         String content = write(action);
+        var entry = entries.byMessage(messageId);
+        if (entry != null && (!entry.userId().equals(userId) || !entry.conversationId().equals(conversationId)
+                || entry.recovering() || !action.action_id().equals(entry.actionId())
+                || !entry.requestId().equals(requestId)
+                || !java.util.Objects.equals(entry.pendingBefore(), expectedPendingState)
+                || !("ACTION_SELECTED".equals(entry.state()) || "RECEIPT_PENDING".equals(entry.state()) || "COMPLETED".equals(entry.state()))
+                || ("ACTION_SELECTED".equals(entry.state()) && !content.equals(entry.actionJson())))) {
+            throw new BusinessRuleException("action_entry_mismatch");
+        }
         // PostgreSQL arbitrates races, including across different conversations/users.
         jdbc.update("""
                 INSERT INTO action_executions(action_id,user_id,conversation_id,user_message_id,request_id,
@@ -65,7 +75,13 @@ public class ActionExecutionService {
                 || !execution.getActionJson().equals(content)) {
             throw new BusinessRuleException("action_conflict");
         }
-        if (execution.getReceiptJson() != null) return receipt(execution);
+        if (execution.getReceiptJson() != null) {
+            if (entry != null) entries.bindReceipt(entry, execution.getActionId());
+            return receipt(execution);
+        }
+        if (entry != null && !"ACTION_SELECTED".equals(entry.state())) {
+            throw new BusinessRuleException("action_entry_mismatch");
+        }
         if (!java.util.Objects.equals(conversation.getPendingState(), expectedPendingState)
                 || executions.existsByUserIdAndConversationIdAndCompositionPendingTrueAndActionIdNot(
                         userId, conversationId, action.action_id())) {
@@ -82,6 +98,7 @@ public class ActionExecutionService {
         execution.setEffectId(effect.id());
         execution.setReceiptJson(write(effect.confirmation()));
         executions.saveAndFlush(execution);
+        if (entry != null) entries.bindReceipt(entry, execution.getActionId());
         return receipt(execution); // provisional internally; caller receives it only after proxy commit.
     }
 
@@ -91,6 +108,17 @@ public class ActionExecutionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Conversa"));
         return executions.findFirstByUserIdAndConversationIdAndCompositionPendingTrueOrderByCreatedAtAsc(
                 userId, conversationId).map(this::receipt).orElse(null);
+    }
+
+    @Transactional
+    public Receipt recordedReceipt(UUID userId, UUID conversationId, String actionId) {
+        conversations.findLockedByIdAndUserId(conversationId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Conversa"));
+        var execution = executions.findByActionId(actionId).orElseThrow();
+        if (!execution.getUserId().equals(userId) || !execution.getConversationId().equals(conversationId)) {
+            throw new BusinessRuleException("action_association_invalid");
+        }
+        return receipt(execution);
     }
 
     private Effect executeEffect(UUID userId, ActionRequest action) {

@@ -51,7 +51,9 @@ public class ConversationController {
     @PostMapping("/{id}/messages")
     public ResponseEntity<ChatReplyResponse> sendMessage(@AuthenticationPrincipal AuthenticatedUser user,
                                                           @PathVariable UUID id,
+                                                          @RequestHeader(value = "Idempotency-Key", required = false) String key,
                                                           @Valid @RequestBody ChatMessageRequest body) {
-        return ResponseEntity.ok(conversationService.sendMessage(user.getId(), id, body));
+        return ResponseEntity.ok(conversationService.sendMessage(user.getId(), id, body,
+                br.com.juntaai.service.MessageProcessingWindow.parseKey(key)));
     }
 }

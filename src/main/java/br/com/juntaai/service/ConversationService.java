@@ -2,6 +2,9 @@ package br.com.juntaai.service;
 import br.com.juntaai.dto.conversation.*;
 import br.com.juntaai.entity.*;
 import br.com.juntaai.exception.ResourceNotFoundException;
+import br.com.juntaai.exception.MessageEntryException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.HttpStatus;
 import br.com.juntaai.integration.ai.AiClient;
 import br.com.juntaai.integration.ai.model.*;
 import br.com.juntaai.repository.*;
@@ -24,6 +27,8 @@ public class ConversationService {
     private final AiClient aiClient;
     private final ConversationTurnStore turns;
     private final ActionExecutionService executions;
+    private final MessageEntryStore entries;
+    private final ObjectMapper mapper;
 
     @Transactional
     public ConversationResponse createConversation(UUID userId, String title) {
@@ -47,30 +52,77 @@ public class ConversationService {
     }
 
     // No encompassing transaction: both AI calls are outside financial commit.
-    public ChatReplyResponse sendMessage(UUID userId, UUID conversationId, ChatMessageRequest request) {
-        var turn = turns.begin(userId, conversationId, request.message());
-        var receipt = executions.pendingReceipt(userId, conversationId);
-        if (receipt != null) return composeReceipt(userId, conversationId, turn, receipt, true);
-
-        var firstCall = new AIServiceRequest(UUID.randomUUID().toString(), "1", conversationId.toString(),
-                request.message(), turn.context(), turn.pending(), null, turn.snapshot(), null);
-        ProcessingResult result = correlated(firstCall, aiClient.process(firstCall));
-        if (result.decision().type() == br.com.juntaai.integration.ai.model.DecisionType.ACTION_REQUEST) {
-            try {
-                receipt = executions.execute(userId, conversationId, turn.messageId(), firstCall.request_id(),
-                        result.action_request(), turn.pendingBefore());
-            } catch (org.springframework.dao.DataAccessException | org.springframework.transaction.TransactionException ex) {
-                // Proxy has rolled back or outcome is uncertain: never leak SQL/payload or rerun here.
-                throw new br.com.juntaai.exception.AiServiceUnavailableException("execution_result_unconfirmed");
-            }
-            return composeReceipt(userId, conversationId, turn, receipt, false);
+    public ChatReplyResponse sendMessage(UUID userId, UUID conversationId, ChatMessageRequest request, UUID key) {
+        if (key == null || key.version() != 4 || key.variant() != 2) {
+            throw new MessageEntryException(HttpStatus.BAD_REQUEST, "idempotency_key_invalid");
         }
-        if (result.action_request() != null) throw new br.com.juntaai.exception.AiServiceUnavailableException("ai_result_invalid");
-        boolean replace = result.pending_operation() != null
-                || "pending_operation_cancelled".equals(result.decision().reason());
-        String reply = result.response() == null || result.response().message() == null || result.response().message().isBlank()
-                ? "Preciso de mais informações para continuar." : result.response().message();
-        return turns.finish(userId, conversationId, turn, reply, result.pending_operation(), replace, null, false, false);
+        var admission = entries.admit(userId, conversationId, key, request.message());
+        var entry = admission.entry();
+        var turn = admission.turn();
+        if ("FAILED".equals(entry.state())) throw MessageEntryException.failed();
+        if ("COMPLETED".equals(entry.state())) {
+            if (entry.receiptId() != null) executions.recordedReceipt(userId, conversationId, entry.receiptId());
+            return contextual(turns.completed(userId, conversationId, turn.messageId()), entry.recovering());
+        }
+        if ("RECEIPT_PENDING".equals(entry.state())) {
+            return composeReceipt(userId, conversationId, turn,
+                    executions.recordedReceipt(userId, conversationId, entry.receiptId()), entry.recovering());
+        }
+        if ("ACTION_SELECTED".equals(entry.state())) return resumeSelected(userId, conversationId, admission);
+        if (!admission.fresh()) {
+            throw new MessageEntryException(HttpStatus.CONFLICT, "message_processing_in_progress");
+        }
+
+        // Only the admission winner can interpret. A retry never enters this branch.
+        var firstCall = new AIServiceRequest(entry.requestId(), "1", conversationId.toString(),
+                request.message(), turn.context(), turn.pending(), null, turn.snapshot(), null);
+        try {
+            ProcessingResult result = correlated(firstCall, aiClient.process(firstCall));
+            if (result.decision().type() == br.com.juntaai.integration.ai.model.DecisionType.ACTION_REQUEST) {
+                if (!entries.select(userId, conversationId, turn.messageId(), result.action_request())) {
+                    throw MessageEntryException.failed();
+                }
+            } else {
+                if (result.action_request() != null) throw new br.com.juntaai.exception.AiServiceUnavailableException("ai_result_invalid");
+                boolean replace = result.pending_operation() != null || "pending_operation_cancelled".equals(result.decision().reason());
+                String reply = result.response() == null || result.response().message() == null || result.response().message().isBlank()
+                        ? "Preciso de mais informações para continuar." : result.response().message();
+                var response = entries.completeResponse(userId, conversationId, turn, reply, result.pending_operation(), replace);
+                if (response == null) throw MessageEntryException.failed();
+                return response;
+            }
+        } catch (RuntimeException ex) {
+            // Guarded update can only terminate PROCESSING, never a selected/committed entry.
+            if (!entries.failInitial(userId, conversationId, turn.messageId())) {
+                // A commit whose response was lost may already have selected/finalized the entry.
+                return resumeSelected(userId, conversationId, entries.admit(userId, conversationId, key, request.message()));
+            }
+            throw MessageEntryException.failed();
+        }
+        // Reload the persisted selection, not the mutable AI result.
+        return resumeSelected(userId, conversationId, entries.admit(userId, conversationId, key, request.message()));
+    }
+
+    private ChatReplyResponse resumeSelected(UUID userId, UUID conversationId, MessageEntryStore.Admission admission) {
+        var entry = admission.entry();
+        if ("RECEIPT_PENDING".equals(entry.state())) {
+            return composeReceipt(userId, conversationId, admission.turn(),
+                    executions.recordedReceipt(userId, conversationId, entry.receiptId()), entry.recovering());
+        }
+        if ("COMPLETED".equals(entry.state())) {
+            if (entry.receiptId() != null) executions.recordedReceipt(userId, conversationId, entry.receiptId());
+            return contextual(turns.completed(userId, conversationId, entry.messageId()), entry.recovering());
+        }
+        ActionRequest action;
+        try { action = mapper.readValue(entry.actionJson(), ActionRequest.class); }
+        catch (Exception ex) { throw new br.com.juntaai.exception.BusinessRuleException("action_entry_mismatch"); }
+        ActionExecutionService.Receipt receipt;
+        try {
+            receipt = executions.execute(userId, conversationId, entry.messageId(), entry.requestId(), action, entry.pendingBefore());
+        } catch (org.springframework.dao.DataAccessException | org.springframework.transaction.TransactionException ex) {
+            throw new br.com.juntaai.exception.AiServiceUnavailableException("execution_result_unconfirmed");
+        }
+        return composeReceipt(userId, conversationId, admission.turn(), receipt, false);
     }
 
     private ChatReplyResponse composeReceipt(UUID userId, UUID conversationId,
@@ -96,11 +148,15 @@ public class ConversationService {
         boolean clearPending = complete && executed && java.util.Objects.equals(turn.pendingBefore(), receipt.pendingStateBefore());
         ChatReplyResponse result = turns.finish(userId, conversationId, turn, reply, null, clearPending,
                 receipt.actionId(), complete, executed && !recovering);
+        return contextual(result, recovering);
+    }
+
+    private ChatReplyResponse contextual(ChatReplyResponse result, boolean recovering) {
         if (!recovering) return result;
         // Persist only the operation's composition/fallback. This call's trusted flow determines
         // the contextual HTTP notice, independently of which turn finalized the receipt.
         MessageResponse accepted = result.assistantMessage();
-        return new ChatReplyResponse(conversationId, result.userMessage(),
+        return new ChatReplyResponse(result.conversationId(), result.userMessage(),
                 new MessageResponse(accepted.id(), accepted.role(), RECOVERY_NOTICE + accepted.content(), accepted.createdAt()), false);
     }
 

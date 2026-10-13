@@ -25,8 +25,10 @@ public class ConversationTurnStore {
     private final GoalRepository goalRepository;
     private final TransactionRepository transactionRepository;
     private final ActionExecutionRepository executions;
+    private final MessageEntryRepository entries;
     private final DashboardService dashboardService;
     private final ObjectMapper objectMapper;
+    private final jakarta.persistence.EntityManager entityManager;
 
     @Transactional
     public Turn begin(UUID userId, UUID conversationId, String content) {
@@ -37,12 +39,51 @@ public class ConversationTurnStore {
                 loadPendingOperation(conversation), buildContext(conversationId), buildFinancialSnapshot(userId));
     }
 
+    @Transactional(readOnly = true)
+    public Turn restore(UUID messageId, String pendingBefore, boolean initial) {
+        Message message = messageRepository.findById(messageId).orElseThrow();
+        Conversation conversation = message.getConversation();
+        PendingOperation pending = null;
+        if (initial && pendingBefore != null && !pendingBefore.isBlank()) {
+            try { pending = objectMapper.readValue(pendingBefore, PendingOperation.class); }
+            catch (Exception ex) { throw new BusinessRuleException("pending_state_invalid"); }
+        }
+        return new Turn(message.getId(), response(message), pendingBefore, pending,
+                buildContext(conversation.getId()), initial ? buildFinancialSnapshot(conversation.getUser().getId()) : null);
+    }
+
+    @Transactional
+    public ChatReplyResponse completed(UUID userId, UUID conversationId, UUID messageId) {
+        owned(userId, conversationId);
+        var entry = entries.byMessage(messageId);
+        if (entry == null || !entry.userId().equals(userId) || !entry.conversationId().equals(conversationId)
+                || !"COMPLETED".equals(entry.state()) || entry.responseId() == null) {
+            throw new BusinessRuleException("composition_evidence_invalid");
+        }
+        boolean executed = false;
+        if (entry.receiptId() != null) {
+            var receipt = executions.findByActionId(entry.receiptId()).orElseThrow();
+            if (!receipt.getUserId().equals(userId) || !receipt.getConversationId().equals(conversationId)
+                    || (!entry.recovering() && !receipt.getUserMessageId().equals(messageId))) {
+                throw new BusinessRuleException("action_association_invalid");
+            }
+            executed = !entry.recovering() && receipt.getStatus() == ExecutionStatus.SUCCESSFUL;
+        }
+        return new ChatReplyResponse(conversationId, response(messageRepository.findById(messageId).orElseThrow()),
+                response(messageRepository.findById(entry.responseId()).orElseThrow()), executed);
+    }
+
     @Transactional
     public ChatReplyResponse finish(UUID userId, UUID conversationId, Turn turn, String reply,
                                     PendingOperation pending, boolean replacePending,
                                     String receiptActionId, boolean compositionComplete, boolean actionExecuted) {
         Conversation conversation = owned(userId, conversationId);
-        // Lock order matches execution: owned conversation, then receipt. No remote call here.
+        // Lock order: owned conversation, optional ingress, then receipt. No remote call here.
+        var entry = entries.byMessage(turn.messageId());
+        if (entry != null && (!entry.userId().equals(userId) || !entry.conversationId().equals(conversationId)
+                || !Objects.equals(entry.receiptId(), receiptActionId))) {
+            throw new BusinessRuleException("action_association_invalid");
+        }
         ActionExecution evidence = null;
         if (receiptActionId != null) {
             evidence = executions.findByActionId(receiptActionId).orElseThrow();
@@ -55,6 +96,7 @@ public class ConversationTurnStore {
                     throw new BusinessRuleException("composition_evidence_invalid");
                 }
                 Message accepted = messageRepository.findById(evidence.getCompositionMessageId()).orElseThrow();
+                if (entry != null) entries.finish(entry, accepted.getId(), true);
                 return new ChatReplyResponse(conversationId, turn.userMessage(), response(accepted), actionExecuted);
             }
         }
@@ -64,10 +106,13 @@ public class ConversationTurnStore {
         }
         Message assistant = messageRepository.saveAndFlush(Message.builder().conversation(conversation)
                 .role(MessageRole.ASSISTANT).content(reply).build());
+        // Replay uses the stored PostgreSQL timestamp (microsecond precision), including the first reply.
+        entityManager.refresh(assistant);
         if (evidence != null && compositionComplete) {
             evidence.setCompositionMessageId(assistant.getId());
             evidence.setCompositionPending(false);
         }
+        if (entry != null) entries.finish(entry, assistant.getId(), evidence == null || compositionComplete);
         return new ChatReplyResponse(conversationId, turn.userMessage(), response(assistant), actionExecuted);
     }
 

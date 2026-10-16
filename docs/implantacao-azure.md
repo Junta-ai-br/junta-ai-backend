@@ -33,8 +33,8 @@ permissão `packages: write`.
 
 ## Federação OIDC no Azure
 
-O registro Entra ID precisa autorizar este repositório e a branch `main); a
-federação criada para outro repositório não cobre este backend. No registro do
+O registro Entra ID precisa autorizar este repositório e a branch `main`.
+A federação criada para outro repositório não cobre este backend. No registro do
 aplicativo correspondente a `AZURE_CLIENT_ID`, abra **Certificates & secrets →
 Federated credentials → Add credential** e escolha a integração do GitHub Actions.
 Informe a organização `Junta-ai-br`, o repositório `junta-ai-backend` e a branch
@@ -43,9 +43,9 @@ no Resource Group `JuntAI-BackEnd`.
 
 ## Configuração do Container App
 
-Confirme no Azure que `juntai-back-springboot` usa a porta de destino `8080) e
-está configurado para alcançar o serviço PostgreSQL gerenciado. Não coloque
-segredos neste arquivo nem nos logs do workflow.
+Confirme no Azure que `juntai-back-springboot` usa a porta de destino `8080`.
+O app precisa estar configurado para alcançar o serviço PostgreSQL gerenciado.
+Não coloque segredos neste arquivo nem nos logs do workflow.
 
 | Variável de ambiente | Requisito |
 | --- | --- |
@@ -64,12 +64,13 @@ existente; não copie credenciais de desenvolvimento do `compose.yaml`.
 
 ## Fluxo
 
-1. Pull requests para `main` executam `bash ./mvnw --batch-mode test) com
+1. Pull requests para `main` executam `bash ./mvnw --batch-mode test`, com
    PostgreSQL 16 temporário.
-2. Pushes para `main) que passam nos testes publicam
+2. Pushes para `main` que passam nos testes publicam
    `ghcr.io/junta-ai-br/junta-ai-backend:sha-<commit>`.
 3. O job de deploy autentica no Azure por OIDC, configura o pull privado do GHCR
    e atualiza o Container App para a imagem do mesmo commit.
-4. Execuções manuais fora de `main) não publicam nem implantam imagens.
+4. Execuções manuais em branches diferentes de `main` não publicam nem implantam
+   imagens.
 
 Toda PR e sua descrição devem ser escritas em português do Brasil.

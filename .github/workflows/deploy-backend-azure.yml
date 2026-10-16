@@ -142,4 +142,4 @@ jobs:
             --image "$IMAGE_REF" \
             --only-show-errors
 
-          echo "Imagem implantada: \`$IMAGE_REF\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Imagem implantada: $IMAGE_REF" >> "$GITHUB_STEP_SUMMARY"

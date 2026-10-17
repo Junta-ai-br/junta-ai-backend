@@ -40,7 +40,7 @@ spring:
     baseline-on-migrate: true
 
 server:
-  forward-headers-strategy: none
+  forward-headers-strategy: native
   port: ${SERVER_PORT:8080}
 
 jwt:

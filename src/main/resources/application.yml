@@ -63,6 +63,10 @@ google:
 auth:
   access-code:
     expiration-minutes: ${ACCESS_CODE_EXPIRATION_MINUTES:10}
+    max-attempts: ${ACCESS_CODE_MAX_ATTEMPTS:5}                       # tentativas por código
+    max-requests-per-window: ${ACCESS_CODE_MAX_REQUESTS:5}            # códigos pedidos por e-mail na janela
+    request-window-minutes: ${ACCESS_CODE_REQUEST_WINDOW_MINUTES:15}
+    resend-cooldown-seconds: ${ACCESS_CODE_RESEND_COOLDOWN_SECONDS:30}
 
 app:
   mail:

@@ -7,6 +7,7 @@ import br.com.juntaai.dto.auth.TokenResponse;
 import br.com.juntaai.entity.OnboardingAnswers;
 import br.com.juntaai.entity.Role;
 import br.com.juntaai.entity.User;
+import br.com.juntaai.exception.ApiException;
 import br.com.juntaai.exception.ConflictException;
 import br.com.juntaai.repository.OnboardingAnswersRepository;
 import br.com.juntaai.repository.UserRepository;
@@ -43,7 +44,7 @@ public class AuthService {
      * Passo 2 do cadastro: confirma o código (prova que é dono do
      * e-mail) e só então grava o usuário de verdade.
      */
-    @Transactional
+    @Transactional(noRollbackFor = ApiException.class)
     public TokenResponse completeRegistration(RegisterVerifyRequest request) {
         if (userRepository.existsByEmail(request.email())) {
             throw new ConflictException("Este e-mail já está cadastrado.");
@@ -69,7 +70,7 @@ public class AuthService {
         emailAccessCodeService.requestCode(email);
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = ApiException.class)
     public TokenResponse verifyAccessCode(AccessCodeVerifyRequest request) {
         User user = emailAccessCodeService.verifyCode(request.email(), request.code());
         return issueTokens(user);

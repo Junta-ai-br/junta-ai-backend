@@ -89,4 +89,25 @@ class PlannerSimulationIntegrationTest extends AbstractIntegrationTest {
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(delete(URL + "/" + UUID.randomUUID())).andExpect(status().isUnauthorized());
     }
+
+    @Test
+    void limitsSavedSimulationsPerUser() throws Exception {
+        String email = uniqueEmail("planner-cap");
+        String token = registerAndGetAccessToken("Cap", email, "11999999999");
+        var user = users.findByEmail(email).orElseThrow();
+        for (int i = 0; i < 200; i++) {
+            var simulation = new br.com.juntaai.entity.PlannerSimulation();
+            simulation.setUser(user);
+            simulation.setGoalName("Meta " + i);
+            simulation.setGoalAmount(new java.math.BigDecimal("1000.00"));
+            simulation.setDeadlineMonths(10);
+            simulation.setAnalysisBase("no_history");
+            simulation.setMonthlyAmount(new java.math.BigDecimal("100.00"));
+            simulation.setEstimatedMonths(10);
+            simulations.save(simulation);
+        }
+        mockMvc.perform(post(URL).header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content(BODY))
+                .andExpect(status().isConflict());
+    }
 }

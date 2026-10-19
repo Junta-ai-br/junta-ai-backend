@@ -23,7 +23,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = {"management.health.mail.enabled=false",
-                "jwt.secret=segredo-somente-para-testes-com-mais-de-32-caracteres"})
+                "jwt.secret=segredo-somente-para-testes-com-mais-de-32-caracteres",
+                "auth.access-code.resend-cooldown-seconds=0"})
 @EnableConfigurationProperties(MailProperties.class)
 @AutoConfigureMockMvc
 public abstract class AbstractIntegrationTest {

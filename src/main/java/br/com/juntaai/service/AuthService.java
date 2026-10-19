@@ -65,8 +65,17 @@ public class AuthService {
         return issueTokens(user);
     }
 
+    /**
+     * Pedido de código para LOGIN. Se não existir conta para o e-mail, não
+     * enviamos nada e respondemos igual (202): assim ninguém consegue usar
+     * esta rota para descobrir quais e-mails estão cadastrados nem para
+     * disparar e-mails para terceiros. Quem não tem conta usa o cadastro.
+     */
     @Transactional
     public void requestAccessCode(String email) {
+        if (!userRepository.existsByEmail(email)) {
+            return;
+        }
         emailAccessCodeService.requestCode(email);
     }
 

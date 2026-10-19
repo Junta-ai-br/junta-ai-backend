@@ -151,4 +151,28 @@ class AuthServiceTest {
 
         assertThat(response.accessToken()).isEqualTo("access-token");
     }
+
+    @Test
+    void naoDeveEnviarCodigoDeLoginParaEmailSemContaENemRevelarIsso() {
+        when(userRepository.existsByEmail("fantasma@email.com")).thenReturn(false);
+
+        authService.requestAccessCode("fantasma@email.com");
+
+        verify(emailAccessCodeService, never()).requestCode(any());
+    }
+
+    @Test
+    void deveEnviarCodigoDeLoginParaEmailComConta() {
+        when(userRepository.existsByEmail("ana@email.com")).thenReturn(true);
+
+        authService.requestAccessCode("ana@email.com");
+
+        verify(emailAccessCodeService).requestCode("ana@email.com");
+    }
+
+    @Test
+    void deveNormalizarEmailParaMinusculasENaoDeixarEspacosNasPontas() {
+        assertThat(new RegisterCodeRequest("  Ana@Email.COM ").email()).isEqualTo("ana@email.com");
+        assertThat(new AccessCodeVerifyRequest("ANA@email.com", "123456").email()).isEqualTo("ana@email.com");
+    }
 }

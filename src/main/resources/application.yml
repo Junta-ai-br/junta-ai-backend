@@ -71,7 +71,13 @@ auth:
 app:
   mail:
     from: ${MAIL_FROM:}
-    contact-to: ${CONTACT_EMAIL_TO:}
+    contact-to: ${CONTACT_EMAIL_TO:}  
+  auth-rate-limit:                       # por IP, rotas /auth/** (janela fixa, por instância)
+    code-request-per-ip: ${AUTH_RATE_LIMIT_CODE_REQUEST:10}
+    verify-per-ip: ${AUTH_RATE_LIMIT_VERIFY:20}
+    other-per-ip: ${AUTH_RATE_LIMIT_OTHER:60}
+    window-seconds: ${AUTH_RATE_LIMIT_WINDOW_SECONDS:600}
+    max-keys: ${AUTH_RATE_LIMIT_MAX_KEYS:20000}
   public-forms:
     rate-limit:
       per-client: ${PUBLIC_FORMS_RATE_LIMIT_PER_CLIENT:5}

@@ -2,6 +2,9 @@ spring:
   application:
     name: junta-ai-backend
 
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
   mail:
     host: ${MAIL_HOST:smtp.gmail.com}
     port: ${MAIL_PORT:587}
@@ -23,6 +26,16 @@ spring:
     username: ${DB_USER:junta_ai}
     password: ${DB_PASSWORD:junta_ai}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      # Pool de conexões. Some o tamanho de TODAS as réplicas: precisa ficar abaixo
+      # do max_connections do PostgreSQL do Azure (ex.: 2 réplicas x 10 = 20).
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
+      # Sem conexão livre em 5 s: responde erro rápido em vez de pendurar a requisição 30 s.
+      connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT_MS:5000}
+      idle-timeout: 300000
+      # Menor que o tempo em que o Azure/firewalls derrubam conexões ociosas.
+      max-lifetime: 1500000
 
   data:
     web:
@@ -48,6 +61,33 @@ spring:
 server:
   forward-headers-strategy: native
   port: ${SERVER_PORT:8080}
+  # Ao receber SIGTERM (deploy/escala) termina as requisições em andamento antes de sair.
+  shutdown: graceful
+  tomcat:
+    threads:
+      max: ${TOMCAT_MAX_THREADS:100}
+    accept-count: 100
+    max-swallow-size: 256KB
+  max-http-request-header-size: 16KB
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+    include-exception: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health      # só /actuator/health fica exposto
+  endpoint:
+    health:
+      show-details: never
+  health:
+    mail:
+      # Sem isso cada checagem de saúde abre conexão com o SMTP; uma falha do
+      # Gmail marcaria a API inteira como fora do ar e o contêiner seria reiniciado.
+      enabled: false
 
 jwt:
   secret: ${JWT_SECRET:}

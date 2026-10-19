@@ -1,6 +1,7 @@
 package br.com.juntaai.service;
 import br.com.juntaai.dto.conversation.*;
 import br.com.juntaai.entity.*;
+import br.com.juntaai.exception.ApiException;
 import br.com.juntaai.exception.ResourceNotFoundException;
 import br.com.juntaai.exception.MessageEntryException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,6 +33,9 @@ public class ConversationService {
 
     @Transactional
     public ConversationResponse createConversation(UUID userId, String title) {
+        if (title != null && title.length() > 200) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "O título deve ter no máximo 200 caracteres.");
+        }
         User user = userRepository.getReferenceById(userId);
         Conversation conversation = Conversation.builder().user(user).title(title).build();
         conversationRepository.save(conversation);

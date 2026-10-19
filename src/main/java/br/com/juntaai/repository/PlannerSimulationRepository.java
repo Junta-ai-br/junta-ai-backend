@@ -7,6 +7,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface PlannerSimulationRepository extends JpaRepository<PlannerSimulation, UUID> {
-    List<PlannerSimulation> findByUserIdOrderByCreatedAtDescIdDesc(UUID userId);
+    List<PlannerSimulation> findByUserIdOrderByCreatedAtDescIdDesc(UUID userId, org.springframework.data.domain.Pageable pageable);
+
+    long countByUserId(UUID userId);
     Optional<PlannerSimulation> findByIdAndUserId(UUID id, UUID userId);
 }

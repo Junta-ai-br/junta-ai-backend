@@ -82,4 +82,20 @@ class TransactionServiceTest {
         assertThatThrownBy(() -> transactionService.create(userId, request))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
+
+        @Test
+    void deveLimitarOTamanhoDaPaginaEIgnorarAOrdenacaoPedidaPeloCliente() {
+        var captor = org.mockito.ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+        when(transactionRepository.findByUserIdAndTransactionDateBetween(any(), any(), any(), captor.capture()))
+                .thenReturn(org.springframework.data.domain.Page.empty());
+
+        var pedido = org.springframework.data.domain.PageRequest.of(
+                2, 100_000, org.springframework.data.domain.Sort.by("user.passwordHash"));
+        transactionService.listForUser(userId, LocalDate.now().minusDays(30), LocalDate.now(), pedido);
+
+        var aplicado = captor.getValue();
+        assertThat(aplicado.getPageNumber()).isEqualTo(2);
+        assertThat(aplicado.getPageSize()).isEqualTo(100);
+        assertThat(aplicado.getSort().toString()).contains("transactionDate").doesNotContain("passwordHash");
+    }
 }

@@ -10,7 +10,9 @@ import br.com.juntaai.repository.TransactionRepository;
 import br.com.juntaai.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +22,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class TransactionService {
+
+    private static final int MAX_PAGE_SIZE = 100;
 
     private final TransactionRepository transactionRepository;
     private final UserRepository userRepository;
@@ -52,8 +56,15 @@ public class TransactionService {
      */
     @Transactional(readOnly = true)
     public Page<TransactionResponse> listForUser(UUID userId, LocalDate from, LocalDate to, Pageable pageable) {
+        // Nunca confiamos no que o cliente pede: tamanho de página limitado e
+        // ordenação fixa (ordenar por campo arbitrário gera erro 500 e consultas lentas).
+        Pageable safe = PageRequest.of(
+                Math.max(0, pageable.getPageNumber()),
+                Math.min(Math.max(1, pageable.getPageSize()), MAX_PAGE_SIZE),
+                Sort.by(Sort.Order.desc("transactionDate"), Sort.Order.desc("createdAt")));
+
         return transactionRepository
-                .findByUserIdAndTransactionDateBetween(userId, from, to, pageable)
+                .findByUserIdAndTransactionDateBetween(userId, from, to, safe)
                 .map(this::toResponse);
     }
 

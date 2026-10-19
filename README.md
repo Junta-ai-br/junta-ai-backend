@@ -71,7 +71,7 @@ o plugin "Lombok".
 
 ```bash
 cp .env.example .env
-# edite o .env se quiser, os valores padrão já funcionam localmente
+# edite o .env: JWT_SECRET é obrigatório (gere com: openssl rand -base64 48)
 
 docker compose up --build
 ```
@@ -97,7 +97,7 @@ docker compose up postgres -d
 export DB_URL=jdbc:postgresql://localhost:5432/junta_ai
 export DB_USER=junta_ai
 export DB_PASSWORD=junta_ai
-export JWT_SECRET=troque-esta-chave-em-producao-min-32-chars
+export JWT_SECRET="$(openssl rand -base64 48)"
 export AI_SERVICE_BASE_URL=http://localhost:8000
 
 # 3. Rode a aplicação

@@ -19,6 +19,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.time.Clock;
+import java.util.Arrays;
 import java.util.List;
 
 @Configuration
@@ -52,9 +53,17 @@ public class SecurityConfig {
         return new AuthRateLimitFilter(codeRequestPerIp, verifyPerIp, otherPerIp,
                 windowSeconds, maxKeys, Clock.systemUTC());
     }
+
+    /** Recusa corpos acima de app.max-request-bytes (padrão 64 KB) com 413. */
+    @Bean
+    public RequestSizeLimitFilter requestSizeLimitFilter(
+            @Value("${app.max-request-bytes:65536}") long maxRequestBytes) {
+        return new RequestSizeLimitFilter(maxRequestBytes);
+    }
        
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http, AuthRateLimitFilter authRateLimitFilter) throws Exception {
+            public SecurityFilterChain filterChain(HttpSecurity http, AuthRateLimitFilter authRateLimitFilter,
+                                           RequestSizeLimitFilter requestSizeLimitFilter) throws Exception {
         return http
                 .csrf(csrf -> csrf.disable()) // API stateless com Bearer token, sem cookies de sessão
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
@@ -69,6 +78,7 @@ public class SecurityConfig {
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         .requestMatchers("/auth/**").permitAll() //Libera login do Google
                         .anyRequest().authenticated())
+                .addFilterBefore(requestSizeLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(authRateLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
@@ -81,10 +91,18 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of(allowedOrigins.split(",")));
+        // Aceita espaço depois da vírgula e barra final ("https://site.com/"), erros comuns ao
+        // preencher a variável no Azure/Vercel que fariam o navegador bloquear tudo com erro de CORS.
+        config.setAllowedOrigins(
+                Arrays.stream(allowedOrigins.split(","))
+                        .map(String::trim)
+                        .filter(origin -> !origin.isEmpty())
+                        .map(origin -> origin.endsWith("/") ? origin.substring(0, origin.length() - 1) : origin)
+                        .toList());
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key"));
         config.setExposedHeaders(List.of("Retry-After"));
+        config.setMaxAge(3600L); // navegador guarda a resposta do preflight por 1 h (menos requisições OPTIONS)
         config.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

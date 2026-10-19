@@ -115,6 +115,7 @@ auth:
     resend-cooldown-seconds: ${ACCESS_CODE_RESEND_COOLDOWN_SECONDS:30}
 
 app:
+  max-request-bytes: ${MAX_REQUEST_BYTES:65536}   # corpo máximo aceito (64 KB)
   mail:
     from: ${MAIL_FROM:}
     contact-to: ${CONTACT_EMAIL_TO:}  

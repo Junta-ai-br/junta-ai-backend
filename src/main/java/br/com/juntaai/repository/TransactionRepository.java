@@ -18,6 +18,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
 
     Optional<Transaction> findByIdAndUserId(UUID id, UUID userId);
 
+    boolean existsByCategoryIdAndUserId(UUID categoryId, UUID userId);
+
     // Carrega a categoria junto (1 consulta em vez de 1 por transação) — evita
     // o N+1 e funciona fora de transação, como no fluxo do chat.
     @EntityGraph(attributePaths = "category")

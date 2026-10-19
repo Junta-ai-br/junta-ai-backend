@@ -3,10 +3,14 @@ package br.com.juntaai.controller;
 import br.com.juntaai.AbstractIntegrationTest;
 import br.com.juntaai.dto.category.CategoryRequest;
 import br.com.juntaai.dto.category.CategoryResponse;
+import br.com.juntaai.dto.transaction.TransactionRequest;
+import br.com.juntaai.entity.TransactionType;
 import br.com.juntaai.entity.CategoryType;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -93,6 +97,27 @@ class CategoryIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(delete("/categories/" + categoriaDoDono)
                         .header("Authorization", "Bearer " + tokenIntruso))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void naoDeveApagarCategoriaQueTemTransacoes() throws Exception {
+        String token = registerAndGetAccessToken("Livia", uniqueEmail("livia"), "senhaForte123");
+        UUID categoriaId = createCategory(token, "Mercado", CategoryType.EXPENSE);
+
+        TransactionRequest transacao = new TransactionRequest(
+                categoriaId, TransactionType.EXPENSE, "Compras", new BigDecimal("10.00"), LocalDate.now());
+        mockMvc.perform(post("/transactions")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(transacao)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/categories/" + categoriaId).header("Authorization", "Bearer " + token))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(get("/categories").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
     }
 
     @Test

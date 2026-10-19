@@ -18,6 +18,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.time.Clock;
 import java.util.List;
 
 @Configuration
@@ -39,8 +40,21 @@ public class SecurityConfig {
             "/v3/api-docs/**"
     };
 
+
+    /** Limite por IP em /auth/** (ver AuthRateLimitFilter). Valores configuráveis por variável de ambiente. */
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    public AuthRateLimitFilter authRateLimitFilter(
+            @Value("${app.auth-rate-limit.code-request-per-ip:10}") int codeRequestPerIp,
+            @Value("${app.auth-rate-limit.verify-per-ip:20}") int verifyPerIp,
+            @Value("${app.auth-rate-limit.other-per-ip:60}") int otherPerIp,
+            @Value("${app.auth-rate-limit.window-seconds:600}") long windowSeconds,
+            @Value("${app.auth-rate-limit.max-keys:20000}") int maxKeys) {
+        return new AuthRateLimitFilter(codeRequestPerIp, verifyPerIp, otherPerIp,
+                windowSeconds, maxKeys, Clock.systemUTC());
+    }
+       
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http, AuthRateLimitFilter authRateLimitFilter) throws Exception {
         return http
                 .csrf(csrf -> csrf.disable()) // API stateless com Bearer token, sem cookies de sessão
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
@@ -55,6 +69,7 @@ public class SecurityConfig {
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         .requestMatchers("/auth/**").permitAll() //Libera login do Google
                         .anyRequest().authenticated())
+                .addFilterBefore(authRateLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
     }

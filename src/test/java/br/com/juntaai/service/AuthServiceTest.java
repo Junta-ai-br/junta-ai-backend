@@ -4,7 +4,6 @@ import br.com.juntaai.dto.auth.AccessCodeVerifyRequest;
 import br.com.juntaai.dto.auth.RegisterCodeRequest;
 import br.com.juntaai.dto.auth.RegisterVerifyRequest;
 import br.com.juntaai.entity.OnboardingAnswers;
-import br.com.juntaai.entity.RefreshToken;
 import br.com.juntaai.entity.User;
 import br.com.juntaai.exception.ConflictException;
 import br.com.juntaai.repository.OnboardingAnswersRepository;
@@ -48,9 +47,7 @@ class AuthServiceTest {
         when(jwtUtil.generateAccessToken(any(), any(), any())).thenReturn("access-token");
         when(jwtUtil.getAccessTokenExpirationSeconds()).thenReturn(900L);
 
-        RefreshToken refreshToken = new RefreshToken();
-        refreshToken.setToken("refresh-token-value");
-        when(refreshTokenService.create(any(User.class))).thenReturn(refreshToken);
+        when(refreshTokenService.create(any(User.class))).thenReturn("refresh-token-value");
     }
 
     @Test

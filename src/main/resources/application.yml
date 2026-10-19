@@ -72,6 +72,8 @@ app:
   mail:
     from: ${MAIL_FROM:}
     contact-to: ${CONTACT_EMAIL_TO:}  
+  cleanup:
+    cron: ${APP_CLEANUP_CRON:0 15 3 * * *}  
   auth-rate-limit:                       # por IP, rotas /auth/** (janela fixa, por instância)
     code-request-per-ip: ${AUTH_RATE_LIMIT_CODE_REQUEST:10}
     verify-per-ip: ${AUTH_RATE_LIMIT_VERIFY:20}

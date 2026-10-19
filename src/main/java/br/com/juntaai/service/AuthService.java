@@ -91,7 +91,7 @@ public class AuthService {
         return issueTokens(user);
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = ApiException.class)
     public TokenResponse refresh(String refreshTokenValue) {
         User user = refreshTokenService.validateAndRotate(refreshTokenValue);
         return issueTokens(user);
@@ -101,7 +101,7 @@ public class AuthService {
     public void logout(String refreshTokenValue) {
         var token = refreshTokenValue == null ? null : refreshTokenValue.trim();
         if (token != null && !token.isEmpty()) {
-            refreshTokenService.validateAndRotate(token);
+            refreshTokenService.revoke(token);
         }
     }
 
@@ -124,7 +124,7 @@ public class AuthService {
 
     private TokenResponse issueTokens(User user) {
         String accessToken = jwtUtil.generateAccessToken(user.getId(), user.getEmail(), user.getRole());
-        String refreshToken = refreshTokenService.create(user).getToken();
+        String refreshToken = refreshTokenService.create(user);
         return new TokenResponse(accessToken, refreshToken, jwtUtil.getAccessTokenExpirationSeconds());
     }
 }

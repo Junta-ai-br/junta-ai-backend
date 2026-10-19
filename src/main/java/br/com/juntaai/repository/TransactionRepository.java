@@ -4,6 +4,7 @@ import br.com.juntaai.entity.Transaction;
 import br.com.juntaai.entity.TransactionType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -17,6 +18,9 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
 
     Optional<Transaction> findByIdAndUserId(UUID id, UUID userId);
 
+    // Carrega a categoria junto (1 consulta em vez de 1 por transação) — evita
+    // o N+1 e funciona fora de transação, como no fluxo do chat.
+    @EntityGraph(attributePaths = "category")
     Page<Transaction> findByUserIdAndTransactionDateBetween(
             UUID userId, LocalDate from, LocalDate to, Pageable pageable);
 

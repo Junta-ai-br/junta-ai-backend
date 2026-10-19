@@ -5,6 +5,7 @@ import br.com.juntaai.dto.conversation.ChatReplyResponse;
 import br.com.juntaai.dto.conversation.ConversationResponse;
 import br.com.juntaai.dto.conversation.MessageResponse;
 import br.com.juntaai.security.AuthenticatedUser;
+import br.com.juntaai.security.ChatRateLimiter;
 import br.com.juntaai.service.ConversationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -25,6 +26,7 @@ import java.util.UUID;
 public class ConversationController {
 
     private final ConversationService conversationService;
+    private final ChatRateLimiter chatRateLimiter;
 
     @Operation(summary = "Criar conversa")
     @PostMapping
@@ -53,6 +55,7 @@ public class ConversationController {
                                                           @PathVariable UUID id,
                                                           @RequestHeader(value = "Idempotency-Key", required = false) String key,
                                                           @Valid @RequestBody ChatMessageRequest body) {
+        chatRateLimiter.acquire(user.getId());
         return ResponseEntity.ok(conversationService.sendMessage(user.getId(), id, body,
                 br.com.juntaai.service.MessageProcessingWindow.parseKey(key)));
     }

@@ -36,16 +36,33 @@
   normal da conta. A política do Workspace pode restringir senhas de app.
   `MAIL_FROM` deve ser a conta ou um alias autorizado; o ambiente precisa
   permitir saída para o servidor SMTP na porta configurada.
-- 🟡 **Cadastro sem verificação de e-mail**: `/auth/register` cria a
-  conta sem confirmar que o e-mail pertence a quem está cadastrando —
-  espelha o comportamento atual do frontend (a Etapa 2 de onboarding não
-  pede confirmação). Isso não abre brecha de acesso indevido (o login por
-  código exige receber o código naquele e-mail de verdade), mas permite
-  cadastrar contas com e-mails de terceiros. Vale discutir com o time se
-  isso é aceitável para o MVP ou se o cadastro também deveria confirmar
-  o e-mail antes de liberar o uso.
-- ✅ **Refresh token com revogação**: token opaco persistido em
-  `refresh_tokens`, com rotação a cada uso e expiração de 7 dias.
+- ✅ **Cadastro com e-mail confirmado**: a conta só é criada depois de
+  confirmar o código recebido no e-mail (`/auth/register/request-code` +
+  `/auth/register/verify`). Nada é gravado antes disso.
+- ✅ **Força bruta no código de 6 dígitos**: máximo de 5 tentativas por
+  código (contagem atômica no banco, vale com requisições paralelas),
+  só o código mais recente vale, 30 s entre pedidos e no máximo 5 pedidos
+  por e-mail a cada 15 min. Configurável por `ACCESS_CODE_*`.
+- ✅ **Limite por IP em `/auth/**`** (`AuthRateLimitFilter`, 429): pedir
+  código 10, verificar 20, demais 60 a cada 10 min. Em memória, por
+  instância; com várias réplicas o limite efetivo é multiplicado, por isso
+  os limites por e-mail/código (no banco) são a garantia principal.
+- ✅ **Limite do chat por usuário** (`ChatRateLimiter`): 20 mensagens/min;
+  cada mensagem aciona a IA (lenta e paga).
+- ✅ **Login sem revelar contas**: pedir código de login para e-mail sem
+  conta responde 202 igual e não envia nada. Código inexistente, expirado,
+  errado ou conta inexistente dão a mesma mensagem. *Limitação conhecida:*
+  o cadastro responde 409 para e-mail já cadastrado (decisão de UX do time);
+  o limite por IP/e-mail reduz o uso dessa rota para listar clientes.
+- ✅ **JWT_SECRET obrigatório**: a aplicação não sobe sem segredo de pelo
+  menos 32 caracteres nem com os valores de exemplo. O filtro JWT usa só as
+  claims assinadas (sem consulta ao banco por requisição); consequência:
+  um usuário apagado mantém o access token válido até 15 min.
+- ✅ **Refresh token com revogação**: token opaco de 256 bits; o banco guarda
+  só o **hash SHA-256** (vazamento do banco não dá acesso às contas). Rotação
+  atômica a cada uso, expiração de 7 dias, logout idempotente. Se um token
+  já usado reaparecer (possível roubo), todas as sessões do usuário são
+  encerradas. Limpeza diária dos vencidos.
 - ✅ **Autorização por propriedade**: toda consulta a Category/Transaction/
   Goal/Conversation é filtrada por `user_id`; ver `docs/architecture.md`.
 - ✅ **SQL Injection**: 100% JPA/Hibernate com parâmetros nomeados
@@ -67,9 +84,16 @@
   (`threat-model.md`) junto com o time; este backend já assume as
   fronteiras de confiança descritas no roadmap (Frontend não confiável,
   IA não confiável para escrita, Backend como única autoridade).
-- ⬜ **Rate limiting / brute-force em `/auth/login`**: não implementado
-  neste MVP — próximo incremento recomendado (ex.: bucket4j ou throttling
-  no Spring Security).
+- ✅ **Carga**: pool Hikari configurável (padrão 10, espera máx. 5 s), chat
+  sem transação aberta durante a chamada à IA (não prende conexão),
+  paginação com teto de 100, ordenação fixa, consultas do chat limitadas,
+  corpo de requisição até 64 KB (413), shutdown graceful.
+- ✅ **Planejador isolado por usuário**: toda consulta de
+  `planner_simulations` filtra por `user_id` do JWT; de outra pessoa = 404.
+- ⬜ **Ainda não coberto** (próximos passos): rate limit global entre
+  réplicas (Redis ou gateway), envio de e-mail assíncrono (hoje o SMTP
+  roda na requisição, com timeout de 5 s), revogação imediata de access
+  token, MFA, WAF/proteção DDoS no Azure.
 
 ## Por que o refresh token não é um JWT
 

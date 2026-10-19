@@ -44,7 +44,7 @@ server:
   port: ${SERVER_PORT:8080}
 
 jwt:
-  secret: ${JWT_SECRET:change-this-secret-in-env-minimum-32-chars-long}
+  secret: ${JWT_SECRET:}
   access-token-expiration-ms: ${JWT_ACCESS_EXP_MS:900000}      # 15 minutos
   refresh-token-expiration-ms: ${JWT_REFRESH_EXP_MS:604800000} # 7 dias
 

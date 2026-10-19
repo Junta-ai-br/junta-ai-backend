@@ -45,6 +45,11 @@ class ConversationIntegrationTest extends AbstractIntegrationTest {
     @MockBean
     private AiClient aiClient;
 
+    private ProcessingResult correlated(br.com.juntaai.integration.ai.model.AIServiceRequest sent, ProcessingResult fixture) {
+        return new ProcessingResult(sent.request_id(), sent.contract_version(), fixture.interpretation(), fixture.decision(),
+                fixture.action_request(), fixture.pending_operation(), fixture.response(), fixture.financial_state(), fixture.metadata());
+    }
+
     private UUID createCategory(String token, String name, CategoryType type) throws Exception {
         String response = mockMvc.perform(post("/categories")
                         .header("Authorization", "Bearer " + token)
@@ -92,9 +97,11 @@ class ConversationIntegrationTest extends AbstractIntegrationTest {
                 new ConversationalResponse("Anotei: R$ 80,00 em Alimentação.", List.of()),
                 null, null);
 
-        when(aiClient.process(any())).thenReturn(actionResult).thenReturn(confirmedResult);
+        when(aiClient.process(any())).thenAnswer(inv -> correlated(inv.getArgument(0), actionResult))
+                .thenAnswer(inv -> correlated(inv.getArgument(0), confirmedResult));
 
         mockMvc.perform(post("/conversations/" + conversationId + "/messages")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ChatMessageRequest("gastei 80 no mercado"))))
@@ -128,9 +135,10 @@ class ConversationIntegrationTest extends AbstractIntegrationTest {
                 new ConversationalResponse("Quanto você gastou?", List.of()),
                 null, null);
 
-        when(aiClient.process(any())).thenReturn(clarificationResult);
+        when(aiClient.process(any())).thenAnswer(inv -> correlated(inv.getArgument(0), clarificationResult));
 
         mockMvc.perform(post("/conversations/" + conversationId + "/messages")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ChatMessageRequest("gastei no mercado"))))
@@ -147,6 +155,7 @@ class ConversationIntegrationTest extends AbstractIntegrationTest {
         String tokenIntruso = registerAndGetAccessToken("Intruso3", uniqueEmail("intruso3"), "senhaForte123");
 
         mockMvc.perform(post("/conversations/" + conversationId + "/messages")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + tokenIntruso)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ChatMessageRequest("oi"))))

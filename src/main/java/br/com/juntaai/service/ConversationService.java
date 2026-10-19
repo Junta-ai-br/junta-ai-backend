@@ -1,84 +1,34 @@
 package br.com.juntaai.service;
-
-import br.com.juntaai.dto.conversation.ChatMessageRequest;
-import br.com.juntaai.dto.conversation.ChatReplyResponse;
-import br.com.juntaai.dto.conversation.ConversationResponse;
-import br.com.juntaai.dto.conversation.MessageResponse;
-import br.com.juntaai.dto.dashboard.DashboardResponse;
-import br.com.juntaai.dto.transaction.TransactionRequest;
-import br.com.juntaai.entity.Category;
-import br.com.juntaai.entity.Conversation;
-import br.com.juntaai.entity.Goal;
-import br.com.juntaai.entity.Message;
-import br.com.juntaai.entity.MessageRole;
-import br.com.juntaai.entity.Transaction;
-import br.com.juntaai.entity.TransactionType;
-import br.com.juntaai.entity.User;
+import br.com.juntaai.dto.conversation.*;
+import br.com.juntaai.entity.*;
 import br.com.juntaai.exception.ResourceNotFoundException;
-import br.com.juntaai.integration.ai.AiClient;
-import br.com.juntaai.integration.ai.model.ActionRequest;
-import br.com.juntaai.integration.ai.model.AIServiceRequest;
-import br.com.juntaai.integration.ai.model.ConversationContext;
-import br.com.juntaai.integration.ai.model.ExecutionConfirmation;
-import br.com.juntaai.integration.ai.model.ExecutionStatus;
-import br.com.juntaai.integration.ai.model.FinancialStateSnapshot;
-import br.com.juntaai.integration.ai.model.Operation;
-import br.com.juntaai.integration.ai.model.ParsedFinancialData;
-import br.com.juntaai.integration.ai.model.PendingOperation;
-import br.com.juntaai.integration.ai.model.ProcessingResult;
-import br.com.juntaai.repository.CategoryRepository;
-import br.com.juntaai.repository.ConversationRepository;
-import br.com.juntaai.repository.GoalRepository;
-import br.com.juntaai.repository.MessageRepository;
-import br.com.juntaai.repository.TransactionRepository;
-import br.com.juntaai.repository.UserRepository;
+import br.com.juntaai.exception.MessageEntryException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.HttpStatus;
+import br.com.juntaai.integration.ai.AiClient;
+import br.com.juntaai.integration.ai.model.*;
+import br.com.juntaai.repository.*;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDate;
-import java.time.format.DateTimeParseException;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
-/**
- * Orquestra a experiência conversacional entre Backend e o serviço de IA
- * (junta-ai-ai), seguindo o contrato de
- * specs/001-ai-service-foundation/contracts/service-boundary.md.
- *
- * A IA é stateless: cada chamada precisa receber o pending_operation da
- * rodada anterior de volta. O Backend guarda esse estado em
- * Conversation.pendingState (serializado em JSON) e é sempre quem decide
- * se uma ActionRequest proposta pela IA é executada de fato — a IA nunca
- * escreve no banco.
- */
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ConversationService {
 
-    private static final int RECENT_MESSAGES_LIMIT = 6;
-    private static final int RECENT_TRANSACTIONS_LIMIT = 10;
-    private static final int SNAPSHOT_WINDOW_DAYS = 90;
+    private static final String RECOVERY_NOTICE = "Sua nova mensagem não foi processada. Esta resposta se refere à operação anterior. "
+            + "Para processar a nova intenção, envie-a novamente após a conclusão desta recuperação. ";
 
     private final ConversationRepository conversationRepository;
     private final MessageRepository messageRepository;
     private final UserRepository userRepository;
-    private final CategoryRepository categoryRepository;
-    private final GoalRepository goalRepository;
-    private final TransactionRepository transactionRepository;
     private final AiClient aiClient;
-    private final TransactionService transactionService;
-    private final GoalService goalService;
-    private final DashboardService dashboardService;
-    private final ObjectMapper objectMapper;
+    private final ConversationTurnStore turns;
+    private final ActionExecutionService executions;
+    private final MessageEntryStore entries;
+    private final ObjectMapper mapper;
 
     @Transactional
     public ConversationResponse createConversation(UUID userId, String title) {
@@ -101,284 +51,121 @@ public class ConversationService {
                 .toList();
     }
 
-    @Transactional
-    public ChatReplyResponse sendMessage(UUID userId, UUID conversationId, ChatMessageRequest request) {
-        Conversation conversation = findOwnedOrThrow(userId, conversationId);
-
-        Message userMessage = messageRepository.save(Message.builder()
-                .conversation(conversation)
-                .role(MessageRole.USER)
-                .content(request.message())
-                .build());
-
-        PendingOperation pendingOperation = loadPendingOperation(conversation);
-        ConversationContext context = buildContext(conversationId);
-        FinancialStateSnapshot snapshot = buildFinancialSnapshot(userId);
-
-        AIServiceRequest firstCall = new AIServiceRequest(
-                UUID.randomUUID().toString(),
-                "1",
-                conversationId.toString(),
-                request.message(),
-                context,
-                pendingOperation,
-                null,
-                snapshot,
-                null);
-
-        ProcessingResult result = aiClient.process(firstCall);
-        Outcome outcome = resolveOutcome(userId, conversationId, request.message(), context, result);
-
-        savePendingOperation(conversation, outcome.pendingOperation());
-        conversationRepository.save(conversation);
-
-        Message assistantMessage = messageRepository.save(Message.builder()
-                .conversation(conversation)
-                .role(MessageRole.ASSISTANT)
-                .content(outcome.replyText())
-                .build());
-
-        return new ChatReplyResponse(
-                conversationId,
-                toResponse(userMessage),
-                toResponse(assistantMessage),
-                outcome.actionExecuted());
-    }
-
-    /**
-     * Interpreta a decisão da IA. Para ACTION_REQUEST, executa a operação
-     * de verdade (via os services existentes) e faz a segunda chamada com
-     * a confirmação de execução, para a IA compor a resposta final.
-     */
-    private Outcome resolveOutcome(UUID userId, UUID conversationId, String originalMessage,
-                                    ConversationContext context, ProcessingResult result) {
-
-        switch (result.decision().type()) {
-            case ACTION_REQUEST -> {
-                ActionRequest action = result.action_request();
-                ExecutionConfirmation confirmation = executeAction(userId, action);
-
-                AIServiceRequest confirmCall = new AIServiceRequest(
-                        UUID.randomUUID().toString(),
-                        "1",
-                        conversationId.toString(),
-                        originalMessage,
-                        context,
-                        null,
-                        action,
-                        null,
-                        confirmation);
-
-                ProcessingResult finalResult = aiClient.process(confirmCall);
-                String reply = finalResult.response() != null
-                        ? finalResult.response().message()
-                        : "Não consegui confirmar a operação.";
-
-                return new Outcome(reply, null, confirmation.status() == ExecutionStatus.SUCCESSFUL);
-            }
-            case CLARIFICATION, CONFIRMATION -> {
-                String reply = result.response() != null
-                        ? result.response().message()
-                        : "Preciso de mais informações para continuar.";
-                return new Outcome(reply, result.pending_operation(), false);
-            }
-            default -> {
-                String reply = result.response() != null
-                        ? result.response().message()
-                        : "Não entendi, pode reformular?";
-                return new Outcome(reply, null, false);
-            }
+    // No encompassing transaction: both AI calls are outside financial commit.
+    public ChatReplyResponse sendMessage(UUID userId, UUID conversationId, ChatMessageRequest request, UUID key) {
+        if (key == null || key.version() != 4 || key.variant() != 2) {
+            throw new MessageEntryException(HttpStatus.BAD_REQUEST, "idempotency_key_invalid");
         }
-    }
+        var admission = entries.admit(userId, conversationId, key, request.message());
+        var entry = admission.entry();
+        var turn = admission.turn();
+        if ("FAILED".equals(entry.state())) throw MessageEntryException.failed();
+        if ("COMPLETED".equals(entry.state())) {
+            if (entry.receiptId() != null) executions.recordedReceipt(userId, conversationId, entry.receiptId());
+            return contextual(turns.completed(userId, conversationId, turn.messageId()), entry.recovering());
+        }
+        if ("RECEIPT_PENDING".equals(entry.state())) {
+            return composeReceipt(userId, conversationId, turn,
+                    executions.recordedReceipt(userId, conversationId, entry.receiptId()), entry.recovering());
+        }
+        if ("ACTION_SELECTED".equals(entry.state())) return resumeSelected(userId, conversationId, admission);
+        if (!admission.fresh()) {
+            throw new MessageEntryException(HttpStatus.CONFLICT, "message_processing_in_progress");
+        }
 
-    /**
-     * Executa a ação proposta pela IA usando os services de domínio já
-     * existentes. Qualquer falha (categoria/meta não encontrada, valor
-     * ausente, operação ainda não suportada) resulta em confirmação
-     * negativa — nunca fingimos sucesso.
-     */
-    private ExecutionConfirmation executeAction(UUID userId, ActionRequest action) {
-        ParsedFinancialData payload = action.payload();
-
+        // Only the admission winner can interpret. A retry never enters this branch.
+        var firstCall = new AIServiceRequest(entry.requestId(), "1", conversationId.toString(),
+                request.message(), turn.context(), turn.pending(), null, turn.snapshot(), null);
         try {
-            switch (action.operation()) {
-                case EXPENSE, INCOME -> {
-                    return executeTransaction(userId, action, payload);
+            ProcessingResult result = correlated(firstCall, aiClient.process(firstCall));
+            if (result.decision().type() == br.com.juntaai.integration.ai.model.DecisionType.ACTION_REQUEST) {
+                if (!entries.select(userId, conversationId, turn.messageId(), result.action_request())) {
+                    throw MessageEntryException.failed();
                 }
-                case GOAL_CONTRIBUTION -> {
-                    return executeGoalContribution(userId, action, payload);
-                }
-                default -> {
-                    return new ExecutionConfirmation(
-                            action.action_id(), ExecutionStatus.UNAVAILABLE, null, null,
-                            "Esta operação ainda não é suportada pelo Backend no MVP.");
-                }
+            } else {
+                if (result.action_request() != null) throw new br.com.juntaai.exception.AiServiceUnavailableException("ai_result_invalid");
+                boolean replace = result.pending_operation() != null || "pending_operation_cancelled".equals(result.decision().reason());
+                String reply = result.response() == null || result.response().message() == null || result.response().message().isBlank()
+                        ? "Preciso de mais informações para continuar." : result.response().message();
+                var response = entries.completeResponse(userId, conversationId, turn, reply, result.pending_operation(), replace);
+                if (response == null) throw MessageEntryException.failed();
+                return response;
             }
-        } catch (Exception ex) {
-            log.warn("Falha ao executar ação {} ({}): {}", action.action_id(), action.operation(), ex.getMessage());
-            return new ExecutionConfirmation(
-                    action.action_id(), ExecutionStatus.FAILED, null, null,
-                    "Não foi possível concluir a operação: " + ex.getMessage());
+        } catch (RuntimeException ex) {
+            // Guarded update can only terminate PROCESSING, never a selected/committed entry.
+            if (!entries.failInitial(userId, conversationId, turn.messageId())) {
+                // A commit whose response was lost may already have selected/finalized the entry.
+                return resumeSelected(userId, conversationId, entries.admit(userId, conversationId, key, request.message()));
+            }
+            throw MessageEntryException.failed();
         }
+        // Reload the persisted selection, not the mutable AI result.
+        return resumeSelected(userId, conversationId, entries.admit(userId, conversationId, key, request.message()));
     }
 
-    private ExecutionConfirmation executeTransaction(UUID userId, ActionRequest action, ParsedFinancialData payload) {
-        if (payload.monetary_value() == null) {
-            return new ExecutionConfirmation(
-                    action.action_id(), ExecutionStatus.REJECTED, null, null, "Valor não informado.");
+    private ChatReplyResponse resumeSelected(UUID userId, UUID conversationId, MessageEntryStore.Admission admission) {
+        var entry = admission.entry();
+        if ("RECEIPT_PENDING".equals(entry.state())) {
+            return composeReceipt(userId, conversationId, admission.turn(),
+                    executions.recordedReceipt(userId, conversationId, entry.receiptId()), entry.recovering());
         }
-
-        Category category = findCategoryByName(userId, payload.category());
-        if (category == null) {
-            return new ExecutionConfirmation(
-                    action.action_id(), ExecutionStatus.REJECTED, null, null,
-                    "Categoria \"" + payload.category() + "\" não encontrada.");
+        if ("COMPLETED".equals(entry.state())) {
+            if (entry.receiptId() != null) executions.recordedReceipt(userId, conversationId, entry.receiptId());
+            return contextual(turns.completed(userId, conversationId, entry.messageId()), entry.recovering());
         }
-
-        TransactionType type = action.operation() == Operation.INCOME
-                ? TransactionType.INCOME
-                : TransactionType.EXPENSE;
-
-        transactionService.create(userId, new TransactionRequest(
-                category.getId(), type, payload.description(), payload.monetary_value(),
-                resolveDate(payload.resolved_date())));
-
-        return new ExecutionConfirmation(
-                action.action_id(), ExecutionStatus.SUCCESSFUL, action.operation(),
-                buildFinancialSnapshot(userId), null);
-    }
-
-    private ExecutionConfirmation executeGoalContribution(UUID userId, ActionRequest action, ParsedFinancialData payload) {
-        if (payload.monetary_value() == null) {
-            return new ExecutionConfirmation(
-                    action.action_id(), ExecutionStatus.REJECTED, null, null, "Valor não informado.");
-        }
-
-        Goal goal = findGoalByName(userId, payload.goal_reference());
-        if (goal == null) {
-            return new ExecutionConfirmation(
-                    action.action_id(), ExecutionStatus.REJECTED, null, null,
-                    "Meta \"" + payload.goal_reference() + "\" não encontrada.");
-        }
-
-        goalService.addProgress(userId, goal.getId(), payload.monetary_value());
-
-        return new ExecutionConfirmation(
-                action.action_id(), ExecutionStatus.SUCCESSFUL, action.operation(),
-                buildFinancialSnapshot(userId), null);
-    }
-
-    private Category findCategoryByName(UUID userId, String name) {
-        if (name == null) {
-            return null;
-        }
-        return categoryRepository.findByUserIdOrderByNameAsc(userId).stream()
-                .filter(c -> c.getName().equalsIgnoreCase(name))
-                .findFirst()
-                .orElse(null);
-    }
-
-    private Goal findGoalByName(UUID userId, String name) {
-        if (name == null) {
-            return null;
-        }
-        return goalRepository.findByUserIdOrderByDeadlineAsc(userId).stream()
-                .filter(g -> g.getName().equalsIgnoreCase(name))
-                .findFirst()
-                .orElse(null);
-    }
-
-    private LocalDate resolveDate(String resolvedDate) {
-        if (resolvedDate == null) {
-            return LocalDate.now();
-        }
+        ActionRequest action;
+        try { action = mapper.readValue(entry.actionJson(), ActionRequest.class); }
+        catch (Exception ex) { throw new br.com.juntaai.exception.BusinessRuleException("action_entry_mismatch"); }
+        ActionExecutionService.Receipt receipt;
         try {
-            return LocalDate.parse(resolvedDate);
-        } catch (DateTimeParseException ex) {
-            return LocalDate.now();
+            receipt = executions.execute(userId, conversationId, entry.messageId(), entry.requestId(), action, entry.pendingBefore());
+        } catch (org.springframework.dao.DataAccessException | org.springframework.transaction.TransactionException ex) {
+            throw new br.com.juntaai.exception.AiServiceUnavailableException("execution_result_unconfirmed");
         }
+        return composeReceipt(userId, conversationId, admission.turn(), receipt, false);
     }
 
-    /**
-     * Monta o "estado financeiro autorizado" que vai junto de toda
-     * requisição à IA — é a única fonte de verdade sobre saldo, metas e
-     * lançamentos que ela pode citar (ver Safety Rules do contrato).
-     */
-    private FinancialStateSnapshot buildFinancialSnapshot(UUID userId) {
-        LocalDate to = LocalDate.now();
-        LocalDate from = to.minusDays(SNAPSHOT_WINDOW_DAYS);
-
-        DashboardResponse dashboard = dashboardService.summarize(userId, from, to);
-
-        Map<String, Object> currentState = new HashMap<>();
-        currentState.put("balance", dashboard.balance());
-        currentState.put("totalIncome", dashboard.totalIncome());
-        currentState.put("totalExpense", dashboard.totalExpense());
-        currentState.put("periodFrom", from.toString());
-        currentState.put("periodTo", to.toString());
-
-        List<Transaction> recent = transactionRepository
-                .findByUserIdAndTransactionDateBetween(
-                        userId, from, to, PageRequest.of(0, RECENT_TRANSACTIONS_LIMIT, Sort.by("transactionDate").descending()))
-                .getContent();
-
-        List<Map<String, Object>> realizedRecords = new ArrayList<>();
-        for (Transaction transaction : recent) {
-            Map<String, Object> record = new HashMap<>();
-            record.put("category", transaction.getCategory().getName());
-            record.put("type", transaction.getType().name());
-            record.put("amount", transaction.getAmount());
-            record.put("description", transaction.getDescription());
-            record.put("date", transaction.getTransactionDate().toString());
-            realizedRecords.add(record);
-        }
-
-        Map<String, Object> goalProgress = new HashMap<>();
-        for (Goal goal : goalRepository.findByUserIdOrderByDeadlineAsc(userId)) {
-            Map<String, Object> progress = new HashMap<>();
-            progress.put("targetAmount", goal.getTargetAmount());
-            progress.put("currentAmount", goal.getCurrentAmount());
-            progress.put("status", goal.getStatus().name());
-            goalProgress.put(goal.getName(), progress);
-        }
-
-        return new FinancialStateSnapshot(
-                null, currentState, Map.of(), realizedRecords, List.of(), goalProgress, Map.of());
-    }
-
-    private ConversationContext buildContext(UUID conversationId) {
-        List<Message> messages = messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId);
-        int fromIndex = Math.max(0, messages.size() - RECENT_MESSAGES_LIMIT);
-        List<String> recent = messages.subList(fromIndex, messages.size()).stream()
-                .map(Message::getContent)
-                .toList();
-        return ConversationContext.of(recent);
-    }
-
-    private PendingOperation loadPendingOperation(Conversation conversation) {
-        String raw = conversation.getPendingState();
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
+    private ChatReplyResponse composeReceipt(UUID userId, UUID conversationId,
+                                            ConversationTurnStore.Turn turn, ActionExecutionService.Receipt receipt, boolean recovering) {
+        boolean executed = receipt.confirmation().status() == ExecutionStatus.SUCCESSFUL;
+        var confirmCall = new AIServiceRequest(UUID.randomUUID().toString(), "1", conversationId.toString(),
+                receipt.originalMessage(), turn.context(), null, receipt.action(), null, receipt.confirmation());
+        String reply = executed ? "A operação foi registrada. A resposta do assistente está pendente; retome esta conversa."
+                : "A operação não foi executada. A resposta do assistente está pendente; retome esta conversa.";
+        boolean complete = false;
         try {
-            return objectMapper.readValue(raw, PendingOperation.class);
-        } catch (Exception ex) {
-            log.warn("Não foi possível ler o estado pendente da conversa {}: {}", conversation.getId(), ex.getMessage());
-            return null;
+            ProcessingResult composed = correlated(confirmCall, aiClient.process(confirmCall));
+            complete = composed.action_request() == null && composed.decision().type() == br.com.juntaai.integration.ai.model.DecisionType.RESPONSE
+                    && (executed ? "execution_confirmed".equals(composed.decision().reason())
+                                 : "execution_confirmation_not_matching".equals(composed.decision().reason()));
+            if (complete && composed.response() != null && composed.response().message() != null
+                    && !composed.response().message().isBlank()) reply = composed.response().message();
+            else complete = false;
+        } catch (br.com.juntaai.exception.AiServiceUnavailableException ignored) {
+            // Financial result was committed before this call; leave durable composition pending.
         }
+        // Only clear the pending operation if the same state still belongs to this execution.
+        boolean clearPending = complete && executed && java.util.Objects.equals(turn.pendingBefore(), receipt.pendingStateBefore());
+        ChatReplyResponse result = turns.finish(userId, conversationId, turn, reply, null, clearPending,
+                receipt.actionId(), complete, executed && !recovering);
+        return contextual(result, recovering);
     }
 
-    private void savePendingOperation(Conversation conversation, PendingOperation pendingOperation) {
-        if (pendingOperation == null) {
-            conversation.setPendingState(null);
-            return;
+    private ChatReplyResponse contextual(ChatReplyResponse result, boolean recovering) {
+        if (!recovering) return result;
+        // Persist only the operation's composition/fallback. This call's trusted flow determines
+        // the contextual HTTP notice, independently of which turn finalized the receipt.
+        MessageResponse accepted = result.assistantMessage();
+        return new ChatReplyResponse(result.conversationId(), result.userMessage(),
+                new MessageResponse(accepted.id(), accepted.role(), RECOVERY_NOTICE + accepted.content(), accepted.createdAt()), false);
+    }
+
+    private ProcessingResult correlated(AIServiceRequest sent, ProcessingResult received) {
+        if (received == null || received.decision() == null || !sent.request_id().equals(received.request_id())
+                || !sent.contract_version().equals(received.contract_version())) {
+            throw new br.com.juntaai.exception.AiServiceUnavailableException("ai_result_invalid");
         }
-        try {
-            conversation.setPendingState(objectMapper.writeValueAsString(pendingOperation));
-        } catch (Exception ex) {
-            log.warn("Não foi possível serializar o estado pendente da conversa {}: {}", conversation.getId(), ex.getMessage());
-            conversation.setPendingState(null);
-        }
+        return received;
     }
 
     private Conversation findOwnedOrThrow(UUID userId, UUID conversationId) {
@@ -394,6 +181,4 @@ public class ConversationService {
         return new MessageResponse(m.getId(), m.getRole().name(), m.getContent(), m.getCreatedAt());
     }
 
-    /** Resultado interno de uma rodada de processamento, antes de persistir. */
-    private record Outcome(String replyText, PendingOperation pendingOperation, boolean actionExecuted) {}
 }

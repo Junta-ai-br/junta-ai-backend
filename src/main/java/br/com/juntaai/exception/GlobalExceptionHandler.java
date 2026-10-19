@@ -24,6 +24,15 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(MessageEntryException.class)
+    public ResponseEntity<Map<String, Object>> handleMessageEntry(MessageEntryException ex) {
+        Map<String, Object> body = baseBody(ex.getStatus(), ex.getMessage());
+        body.put("code", ex.getCode());
+        var response = ResponseEntity.status(ex.getStatus());
+        if ("message_processing_in_progress".equals(ex.getCode())) response.header("Retry-After", "2");
+        return response.body(body);
+    }
+
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<Map<String, Object>> handleUnreadable(HttpMessageNotReadableException ex) {
         // Jackson errors can contain submitted message text; do not log them.

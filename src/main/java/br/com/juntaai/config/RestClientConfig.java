@@ -24,7 +24,10 @@ public class RestClientConfig {
             @Value("${ai.service.connect-timeout-ms}") int connectTimeoutMs,
             @Value("${ai.service.read-timeout-ms}") int readTimeoutMs) {
 
+        // HTTP/1.1 explícito: em http:// o JDK tenta "upgrade" para HTTP/2 (h2c)
+        // e o uvicorn da IA perde o corpo da requisição (422 invalid_request).
         HttpClient httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofMillis(connectTimeoutMs))
                 .build();
 

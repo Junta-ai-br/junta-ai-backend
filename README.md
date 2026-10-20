@@ -73,7 +73,8 @@ o plugin "Lombok".
 # apenas se o .env ainda não existir:
 cp .env.example .env
 # se o .env já existir, preserve-o e adicione apenas as variáveis ausentes
-# preencha as variáveis SMTP abaixo antes de subir o backend
+# configure JWT_SECRET (obrigatório; gere com: openssl rand -base64 48)
+# preencha as variáveis SMTP antes de subir o backend
 
 docker compose up --build
 ```
@@ -113,7 +114,7 @@ docker compose up postgres -d
 export DB_URL=jdbc:postgresql://localhost:5432/junta_ai
 export DB_USER=junta_ai
 export DB_PASSWORD=junta_ai
-export JWT_SECRET=troque-esta-chave-em-producao-min-32-chars
+export JWT_SECRET="$(openssl rand -base64 48)"
 export AI_SERVICE_BASE_URL=http://localhost:8000
 
 # 3. Rode a aplicação

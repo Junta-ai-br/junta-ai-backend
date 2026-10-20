@@ -1,6 +1,7 @@
 package br.com.juntaai.repository;
 
 import br.com.juntaai.entity.Conversation;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -16,5 +17,6 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
     @Query("select c from Conversation c where c.id = :id and c.user.id = :userId")
     Optional<Conversation> findLockedByIdAndUserId(@Param("id") UUID id, @Param("userId") UUID userId);
     List<Conversation> findByUserIdOrderByUpdatedAtDesc(UUID userId);
+    List<Conversation> findByUserId(UUID userId, Pageable pageable);
     Optional<Conversation> findByIdAndUserId(UUID id, UUID userId);
 }

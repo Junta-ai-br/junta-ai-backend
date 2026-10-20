@@ -46,7 +46,7 @@ public class GoogleAuthService {
         }
 
         String googleId = String.valueOf(claims.get("sub"));
-        String email = String.valueOf(claims.get("email"));
+        String email = String.valueOf(claims.get("email")).trim().toLowerCase(java.util.Locale.ROOT);
         String name = claims.getOrDefault("name", email).toString();
 
         return userRepository.findByGoogleId(googleId)

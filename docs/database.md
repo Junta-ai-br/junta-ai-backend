@@ -44,3 +44,15 @@ users 1─* refresh_tokens
 - Enums de domínio (tipo de categoria, tipo de transação, status de meta,
   papel da mensagem) são `VARCHAR` no banco e `enum` no Java — evita
   depender do `ENUM` nativo do Postgres, que é mais custoso de alterar.
+
+## Migrations da revisão de segurança/escala (V8–V9)
+
+(A tabela `planner_simulations` é da `V7`, do time.)
+
+| Versão | O que faz |
+| --- | --- |
+| `V8__access_code_attempts.sql` | coluna `attempts` em `email_access_codes` + índices de e-mail/data e de expiração |
+| `V9__normalize_emails.sql` | e-mails existentes em minúsculas (sem violar unicidade) |
+
+`refresh_tokens.token` passa a guardar o **hash SHA-256** do token (não o
+valor entregue ao usuário); não exige migration, só invalida sessões antigas.

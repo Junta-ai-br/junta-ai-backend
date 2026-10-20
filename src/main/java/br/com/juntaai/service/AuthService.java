@@ -7,6 +7,7 @@ import br.com.juntaai.dto.auth.TokenResponse;
 import br.com.juntaai.entity.OnboardingAnswers;
 import br.com.juntaai.entity.Role;
 import br.com.juntaai.entity.User;
+import br.com.juntaai.exception.ApiException;
 import br.com.juntaai.exception.ConflictException;
 import br.com.juntaai.repository.OnboardingAnswersRepository;
 import br.com.juntaai.repository.UserRepository;
@@ -43,7 +44,7 @@ public class AuthService {
      * Passo 2 do cadastro: confirma o código (prova que é dono do
      * e-mail) e só então grava o usuário de verdade.
      */
-    @Transactional
+    @Transactional(noRollbackFor = ApiException.class)
     public TokenResponse completeRegistration(RegisterVerifyRequest request) {
         if (userRepository.existsByEmail(request.email())) {
             throw new ConflictException("Este e-mail já está cadastrado.");
@@ -64,12 +65,21 @@ public class AuthService {
         return issueTokens(user);
     }
 
+    /**
+     * Pedido de código para LOGIN. Se não existir conta para o e-mail, não
+     * enviamos nada e respondemos igual (202): assim ninguém consegue usar
+     * esta rota para descobrir quais e-mails estão cadastrados nem para
+     * disparar e-mails para terceiros. Quem não tem conta usa o cadastro.
+     */
     @Transactional
     public void requestAccessCode(String email) {
+        if (!userRepository.existsByEmail(email)) {
+            return;
+        }
         emailAccessCodeService.requestCode(email);
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = ApiException.class)
     public TokenResponse verifyAccessCode(AccessCodeVerifyRequest request) {
         User user = emailAccessCodeService.verifyCode(request.email(), request.code());
         return issueTokens(user);
@@ -81,7 +91,7 @@ public class AuthService {
         return issueTokens(user);
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = ApiException.class)
     public TokenResponse refresh(String refreshTokenValue) {
         User user = refreshTokenService.validateAndRotate(refreshTokenValue);
         return issueTokens(user);
@@ -91,7 +101,7 @@ public class AuthService {
     public void logout(String refreshTokenValue) {
         var token = refreshTokenValue == null ? null : refreshTokenValue.trim();
         if (token != null && !token.isEmpty()) {
-            refreshTokenService.validateAndRotate(token);
+            refreshTokenService.revoke(token);
         }
     }
 
@@ -114,7 +124,7 @@ public class AuthService {
 
     private TokenResponse issueTokens(User user) {
         String accessToken = jwtUtil.generateAccessToken(user.getId(), user.getEmail(), user.getRole());
-        String refreshToken = refreshTokenService.create(user).getToken();
+        String refreshToken = refreshTokenService.create(user);
         return new TokenResponse(accessToken, refreshToken, jwtUtil.getAccessTokenExpirationSeconds());
     }
 }

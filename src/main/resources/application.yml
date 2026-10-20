@@ -2,6 +2,9 @@ spring:
   application:
     name: junta-ai-backend
 
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
   mail:
     host: ${MAIL_HOST:smtp.gmail.com}
     port: ${MAIL_PORT:587}
@@ -23,6 +26,22 @@ spring:
     username: ${DB_USER:junta_ai}
     password: ${DB_PASSWORD:junta_ai}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      # Pool de conexões. Some o tamanho de TODAS as réplicas: precisa ficar abaixo
+      # do max_connections do PostgreSQL do Azure (ex.: 2 réplicas x 10 = 20).
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
+      # Sem conexão livre em 5 s: responde erro rápido em vez de pendurar a requisição 30 s.
+      connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT_MS:5000}
+      idle-timeout: 300000
+      # Menor que o tempo em que o Azure/firewalls derrubam conexões ociosas.
+      max-lifetime: 1500000
+
+  data:
+    web:
+      pageable:
+        default-page-size: 20
+        max-page-size: 100        # ?size=100000 vira 100
 
   jpa:
     hibernate:
@@ -40,11 +59,38 @@ spring:
     baseline-on-migrate: true
 
 server:
-  forward-headers-strategy: none
+  forward-headers-strategy: native
   port: ${SERVER_PORT:8080}
+  # Ao receber SIGTERM (deploy/escala) termina as requisições em andamento antes de sair.
+  shutdown: graceful
+  tomcat:
+    threads:
+      max: ${TOMCAT_MAX_THREADS:100}
+    accept-count: 100
+    max-swallow-size: 256KB
+  max-http-request-header-size: 16KB
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+    include-exception: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health      # só /actuator/health fica exposto
+  endpoint:
+    health:
+      show-details: never
+  health:
+    mail:
+      # Sem isso cada checagem de saúde abre conexão com o SMTP; uma falha do
+      # Gmail marcaria a API inteira como fora do ar e o contêiner seria reiniciado.
+      enabled: false
 
 jwt:
-  secret: ${JWT_SECRET:change-this-secret-in-env-minimum-32-chars-long}
+  secret: ${JWT_SECRET:}
   access-token-expiration-ms: ${JWT_ACCESS_EXP_MS:900000}      # 15 minutos
   refresh-token-expiration-ms: ${JWT_REFRESH_EXP_MS:604800000} # 7 dias
 
@@ -63,11 +109,28 @@ google:
 auth:
   access-code:
     expiration-minutes: ${ACCESS_CODE_EXPIRATION_MINUTES:10}
+    max-attempts: ${ACCESS_CODE_MAX_ATTEMPTS:5}                       # tentativas por código
+    max-requests-per-window: ${ACCESS_CODE_MAX_REQUESTS:5}            # códigos pedidos por e-mail na janela
+    request-window-minutes: ${ACCESS_CODE_REQUEST_WINDOW_MINUTES:15}
+    resend-cooldown-seconds: ${ACCESS_CODE_RESEND_COOLDOWN_SECONDS:30}
 
 app:
+  max-request-bytes: ${MAX_REQUEST_BYTES:65536}   # corpo máximo aceito (64 KB)
   mail:
     from: ${MAIL_FROM:}
     contact-to: ${CONTACT_EMAIL_TO:}
+  chat-rate-limit:                       # mensagens por usuário (cada uma aciona a IA)
+    per-user: ${CHAT_RATE_LIMIT_PER_USER:20}
+    window-seconds: ${CHAT_RATE_LIMIT_WINDOW_SECONDS:60}
+    max-users: ${CHAT_RATE_LIMIT_MAX_USERS:50000}
+  cleanup:
+    cron: ${APP_CLEANUP_CRON:0 15 3 * * *}
+  auth-rate-limit:                       # por IP, rotas /auth/** (janela fixa, por instância)
+    code-request-per-ip: ${AUTH_RATE_LIMIT_CODE_REQUEST:10}
+    verify-per-ip: ${AUTH_RATE_LIMIT_VERIFY:20}
+    other-per-ip: ${AUTH_RATE_LIMIT_OTHER:60}
+    window-seconds: ${AUTH_RATE_LIMIT_WINDOW_SECONDS:600}
+    max-keys: ${AUTH_RATE_LIMIT_MAX_KEYS:20000}
   public-forms:
     rate-limit:
       per-client: ${PUBLIC_FORMS_RATE_LIMIT_PER_CLIENT:5}

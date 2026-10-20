@@ -4,7 +4,6 @@ import br.com.juntaai.dto.auth.AccessCodeVerifyRequest;
 import br.com.juntaai.dto.auth.RegisterCodeRequest;
 import br.com.juntaai.dto.auth.RegisterVerifyRequest;
 import br.com.juntaai.entity.OnboardingAnswers;
-import br.com.juntaai.entity.RefreshToken;
 import br.com.juntaai.entity.User;
 import br.com.juntaai.exception.ConflictException;
 import br.com.juntaai.repository.OnboardingAnswersRepository;
@@ -48,9 +47,7 @@ class AuthServiceTest {
         when(jwtUtil.generateAccessToken(any(), any(), any())).thenReturn("access-token");
         when(jwtUtil.getAccessTokenExpirationSeconds()).thenReturn(900L);
 
-        RefreshToken refreshToken = new RefreshToken();
-        refreshToken.setToken("refresh-token-value");
-        when(refreshTokenService.create(any(User.class))).thenReturn(refreshToken);
+        when(refreshTokenService.create(any(User.class))).thenReturn("refresh-token-value");
     }
 
     @Test
@@ -150,5 +147,29 @@ class AuthServiceTest {
         var response = authService.loginWithGoogle("id-token-valido");
 
         assertThat(response.accessToken()).isEqualTo("access-token");
+    }
+
+    @Test
+    void naoDeveEnviarCodigoDeLoginParaEmailSemContaENemRevelarIsso() {
+        when(userRepository.existsByEmail("fantasma@email.com")).thenReturn(false);
+
+        authService.requestAccessCode("fantasma@email.com");
+
+        verify(emailAccessCodeService, never()).requestCode(any());
+    }
+
+    @Test
+    void deveEnviarCodigoDeLoginParaEmailComConta() {
+        when(userRepository.existsByEmail("ana@email.com")).thenReturn(true);
+
+        authService.requestAccessCode("ana@email.com");
+
+        verify(emailAccessCodeService).requestCode("ana@email.com");
+    }
+
+    @Test
+    void deveNormalizarEmailParaMinusculasENaoDeixarEspacosNasPontas() {
+        assertThat(new RegisterCodeRequest("  Ana@Email.COM ").email()).isEqualTo("ana@email.com");
+        assertThat(new AccessCodeVerifyRequest("ANA@email.com", "123456").email()).isEqualTo("ana@email.com");
     }
 }

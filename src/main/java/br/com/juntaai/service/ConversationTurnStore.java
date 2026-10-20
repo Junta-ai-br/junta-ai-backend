@@ -177,10 +177,12 @@ public class ConversationTurnStore {
                 null, currentState, Map.of(), realizedRecords, List.of(), goalProgress, Map.of());
     }
 
-    private ConversationContext buildContext(UUID conversationId) {
-        List<Message> messages = messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId);
-        int fromIndex = Math.max(0, messages.size() - RECENT_MESSAGES_LIMIT);
-        List<String> recent = messages.subList(fromIndex, messages.size()).stream()
+     private ConversationContext buildContext(UUID conversationId) {
+        // Busca só as mais recentes no banco (antes carregava a conversa inteira).
+        List<Message> latest = new java.util.ArrayList<>(messageRepository.findByConversationId(
+                conversationId, PageRequest.of(0, RECENT_MESSAGES_LIMIT, Sort.by(Sort.Direction.DESC, "createdAt"))));
+        java.util.Collections.reverse(latest);
+        List<String> recent = latest.stream()
                 .map(Message::getContent)
                 .toList();
         return ConversationContext.of(recent);

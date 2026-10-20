@@ -2,6 +2,7 @@ package br.com.juntaai.dto.transaction;
 
 import br.com.juntaai.entity.TransactionType;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PastOrPresent;
 import jakarta.validation.constraints.Size;
@@ -23,6 +24,7 @@ public record TransactionRequest(
 
         @NotNull(message = "O valor é obrigatório.")
         @DecimalMin(value = "0.01", message = "O valor deve ser maior que zero.")
+        @Digits(integer = 15, fraction = 2, message = "Valor fora do limite permitido (até 15 dígitos e 2 casas decimais).")
         BigDecimal amount,
 
         @NotNull(message = "A data da transação é obrigatória.")

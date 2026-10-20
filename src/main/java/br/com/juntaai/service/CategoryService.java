@@ -7,6 +7,7 @@ import br.com.juntaai.entity.User;
 import br.com.juntaai.exception.ConflictException;
 import br.com.juntaai.exception.ResourceNotFoundException;
 import br.com.juntaai.repository.CategoryRepository;
+import br.com.juntaai.repository.TransactionRepository;
 import br.com.juntaai.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,6 +22,7 @@ public class CategoryService {
 
     private final CategoryRepository categoryRepository;
     private final UserRepository userRepository;
+    private final TransactionRepository transactionRepository;
 
     @Transactional
     public CategoryResponse create(UUID userId, CategoryRequest request) {
@@ -56,6 +58,11 @@ public class CategoryService {
     @Transactional
     public void delete(UUID userId, UUID categoryId) {
         Category category = findOwnedOrThrow(userId, categoryId);
+        // O banco impede apagar categoria com transações (ON DELETE RESTRICT);
+        // checamos antes para devolver 409 com mensagem clara em vez de 500.
+        if (transactionRepository.existsByCategoryIdAndUserId(categoryId, userId)) {
+            throw new ConflictException("Esta categoria tem transações. Mova ou apague as transações antes de removê-la.");
+        }
         categoryRepository.delete(category);
     }
 

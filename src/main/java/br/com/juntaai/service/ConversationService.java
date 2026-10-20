@@ -1,9 +1,12 @@
 package br.com.juntaai.service;
 import br.com.juntaai.dto.conversation.*;
 import br.com.juntaai.entity.*;
+import br.com.juntaai.exception.ApiException;
 import br.com.juntaai.exception.ResourceNotFoundException;
 import br.com.juntaai.exception.MessageEntryException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import br.com.juntaai.integration.ai.AiClient;
 import br.com.juntaai.integration.ai.model.*;
@@ -32,21 +35,31 @@ public class ConversationService {
 
     @Transactional
     public ConversationResponse createConversation(UUID userId, String title) {
+        if (title != null && title.length() > 200) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "O título deve ter no máximo 200 caracteres.");
+        }
         User user = userRepository.getReferenceById(userId);
         Conversation conversation = Conversation.builder().user(user).title(title).build();
         conversationRepository.save(conversation);
         return toResponse(conversation);
     }
+    private static final int MAX_CONVERSATIONS_LISTED = 100;
+    private static final int MAX_MESSAGES_LISTED = 200;
 
     public List<ConversationResponse> listForUser(UUID userId) {
-        return conversationRepository.findByUserIdOrderByUpdatedAtDesc(userId).stream()
+        return conversationRepository.findByUserId(userId,
+                        PageRequest.of(0, MAX_CONVERSATIONS_LISTED, Sort.by(Sort.Direction.DESC, "updatedAt"))).stream()
                 .map(this::toResponse)
                 .toList();
     }
 
     public List<MessageResponse> listMessages(UUID userId, UUID conversationId) {
         findOwnedOrThrow(userId, conversationId);
-        return messageRepository.findByConversationIdOrderByCreatedAtAsc(conversationId).stream()
+        // As 200 mais recentes, devolvidas em ordem cronológica.
+        List<Message> latest = new java.util.ArrayList<>(messageRepository.findByConversationId(
+                conversationId, PageRequest.of(0, MAX_MESSAGES_LISTED, Sort.by(Sort.Direction.DESC, "createdAt"))));
+        java.util.Collections.reverse(latest);
+        return latest.stream()
                 .map(this::toResponse)
                 .toList();
     }

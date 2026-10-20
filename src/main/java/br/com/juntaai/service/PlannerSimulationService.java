@@ -3,10 +3,12 @@ package br.com.juntaai.service;
 import br.com.juntaai.dto.planner.SimulationRequest;
 import br.com.juntaai.dto.planner.SimulationResponse;
 import br.com.juntaai.entity.PlannerSimulation;
+import br.com.juntaai.exception.ConflictException;
 import br.com.juntaai.exception.ResourceNotFoundException;
 import br.com.juntaai.repository.PlannerSimulationRepository;
 import br.com.juntaai.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
@@ -18,8 +20,14 @@ public class PlannerSimulationService {
     private final PlannerSimulationRepository repository;
     private final UserRepository users;
 
+    /** Teto por usuário: sem ele, uma conta poderia encher o banco com simulações. */
+    static final int MAX_PER_USER = 200;
+
     @Transactional
     public SimulationResponse create(UUID userId, SimulationRequest request) {
+        if (repository.countByUserId(userId) >= MAX_PER_USER) {
+            throw new ConflictException("Limite de " + MAX_PER_USER + " simulações salvas. Apague alguma para salvar outra.");
+        }
         var simulation = new PlannerSimulation();
         simulation.setUser(users.getReferenceById(userId));
         simulation.setGoalName(request.goalName().trim());
@@ -34,7 +42,7 @@ public class PlannerSimulationService {
 
     @Transactional(readOnly = true)
     public List<SimulationResponse> listForUser(UUID userId) {
-        return repository.findByUserIdOrderByCreatedAtDescIdDesc(userId).stream()
+        return repository.findByUserIdOrderByCreatedAtDescIdDesc(userId, PageRequest.of(0, MAX_PER_USER)).stream()
                 .map(this::toResponse).toList();
     }
 

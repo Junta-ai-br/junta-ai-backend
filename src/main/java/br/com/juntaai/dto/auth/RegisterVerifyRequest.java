@@ -16,6 +16,7 @@ public record RegisterVerifyRequest(
 
         @NotBlank(message = "O e-mail é obrigatório.")
         @Email(message = "Informe um e-mail válido.")
+        @Size(max = 180, message = "O e-mail deve ter no máximo 180 caracteres.")
         String email,
 
         @NotBlank(message = "O WhatsApp é obrigatório.")
@@ -26,7 +27,16 @@ public record RegisterVerifyRequest(
         @Pattern(regexp = "\\d{6}", message = "O código deve ter exatamente 6 dígitos.")
         String code,
 
+        @Size(max = 1000, message = "A resposta deve ter no máximo 1000 caracteres.")
         String question1,
+
+        @Size(max = 1000, message = "A resposta deve ter no máximo 1000 caracteres.")
         String question2,
+
+        @Size(max = 1000, message = "A resposta deve ter no máximo 1000 caracteres.")
         String question3
-) {}
+) {
+    public RegisterVerifyRequest {
+        email = EmailNormalizer.normalize(email);
+    }
+}

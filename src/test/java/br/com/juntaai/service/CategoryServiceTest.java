@@ -8,6 +8,7 @@ import br.com.juntaai.entity.User;
 import br.com.juntaai.exception.ConflictException;
 import br.com.juntaai.exception.ResourceNotFoundException;
 import br.com.juntaai.repository.CategoryRepository;
+import br.com.juntaai.repository.TransactionRepository;
 import br.com.juntaai.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,13 +34,17 @@ class CategoryServiceTest {
     @Mock
     private UserRepository userRepository;
 
+
+    @Mock
+    private TransactionRepository transactionRepository;
+
     private CategoryService categoryService;
 
     private final UUID userId = UUID.randomUUID();
 
     @BeforeEach
     void setUp() {
-        categoryService = new CategoryService(categoryRepository, userRepository);
+        categoryService = new CategoryService(categoryRepository, userRepository, transactionRepository);
     }
 
     @Test

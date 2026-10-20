@@ -17,9 +17,9 @@ import static org.mockito.ArgumentMatchers.*;
 
 class ConversationCategoryCatalogTest {
     private final CategoryRepository categories = mock(CategoryRepository.class);
-    private final CategoryService categoryService = new CategoryService(categories, mock(UserRepository.class));
-    private final DashboardService dashboard = mock(DashboardService.class);
     private final TransactionRepository transactions = mock(TransactionRepository.class);
+    private final CategoryService categoryService = new CategoryService(categories, mock(UserRepository.class), transactions);
+    private final DashboardService dashboard = mock(DashboardService.class);
     private final GoalRepository goals = mock(GoalRepository.class);
     private final UUID user = UUID.randomUUID();
     private final ConversationTurnStore turns = new ConversationTurnStore(mock(ConversationRepository.class),

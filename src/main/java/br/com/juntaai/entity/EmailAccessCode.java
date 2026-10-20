@@ -38,7 +38,7 @@ public class EmailAccessCode extends BaseEntity {
 
     @Builder.Default
     private boolean used = false;
-        
+
     /** Tentativas de adivinhar este código (força bruta). Ver auth.access-code.max-attempts. */
     @Builder.Default
     @Column(nullable = false)

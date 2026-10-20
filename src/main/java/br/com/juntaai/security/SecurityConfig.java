@@ -60,7 +60,7 @@ public class SecurityConfig {
             @Value("${app.max-request-bytes:65536}") long maxRequestBytes) {
         return new RequestSizeLimitFilter(maxRequestBytes);
     }
-       
+
     @Bean
             public SecurityFilterChain filterChain(HttpSecurity http, AuthRateLimitFilter authRateLimitFilter,
                                            RequestSizeLimitFilter requestSizeLimitFilter) throws Exception {

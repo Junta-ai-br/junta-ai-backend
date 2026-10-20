@@ -21,8 +21,9 @@ class ConversationServiceTest {
             mock(MessageRepository.class), mock(UserRepository.class), ai, turns, executions, entries,
             new com.fasterxml.jackson.databind.ObjectMapper());
 
-    private ConversationTurnStore.Turn prepare() {
-        var turn = new ConversationTurnStore.Turn(UUID.randomUUID(), null, null, null, ConversationContext.of(List.of()), null);
+    private ConversationTurnStore.Turn prepare() { return prepare(null); }
+    private ConversationTurnStore.Turn prepare(FinancialStateSnapshot snapshot) {
+        var turn = new ConversationTurnStore.Turn(UUID.randomUUID(), null, null, null, ConversationContext.of(List.of()), snapshot);
         var entry = new MessageEntryRepository.Entry(UUID.randomUUID(), user, conversation, turn.messageId(), "NORMAL", "PROCESSING",
                 "request", null, null, null, null, null, java.time.Instant.now().plusSeconds(60));
         when(entries.admit(eq(user), eq(conversation), any(), eq("synthetic")))
@@ -60,5 +61,27 @@ class ConversationServiceTest {
         service.sendMessage(user, conversation, new ChatMessageRequest("synthetic"), UUID.randomUUID());
         verify(entries).completeResponse(user, conversation, turn, "synthetic", null, false);
         verify(executions, never()).execute(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test void forwardsBackendSnapshotCatalogWithoutClientMetadata() {
+        var catalog = List.of(new CategoryCatalogEntry(UUID.randomUUID(), "Synthetic", br.com.juntaai.entity.CategoryType.EXPENSE));
+        var snapshot = new FinancialStateSnapshot(null, Map.of("category_catalog", catalog), Map.of(), List.of(), List.of(), Map.of(), Map.of());
+        prepare(snapshot);
+        when(ai.process(any())).thenAnswer(inv -> {
+            AIServiceRequest sent = inv.getArgument(0);
+            assertThat(sent.financial_state()).isSameAs(snapshot);
+            assertThat(sent.context().metadata()).isEmpty();
+            return result(sent, null, "validation_required");
+        });
+        service.sendMessage(user, conversation, new ChatMessageRequest("synthetic"), UUID.randomUUID());
+        verify(executions, never()).execute(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test void snapshotLookupFailureDuringAdmissionNeverCallsAiOrExecutes() {
+        when(entries.admit(eq(user), eq(conversation), any(), any()))
+                .thenThrow(new IllegalStateException("synthetic catalog query failure"));
+        assertThatThrownBy(() -> service.sendMessage(user, conversation, new ChatMessageRequest("synthetic"), UUID.randomUUID()))
+                .isInstanceOf(IllegalStateException.class);
+        verifyNoInteractions(ai, executions);
     }
 }

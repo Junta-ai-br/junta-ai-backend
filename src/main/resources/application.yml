@@ -118,13 +118,13 @@ app:
   max-request-bytes: ${MAX_REQUEST_BYTES:65536}   # corpo máximo aceito (64 KB)
   mail:
     from: ${MAIL_FROM:}
-    contact-to: ${CONTACT_EMAIL_TO:}  
+    contact-to: ${CONTACT_EMAIL_TO:}
   chat-rate-limit:                       # mensagens por usuário (cada uma aciona a IA)
     per-user: ${CHAT_RATE_LIMIT_PER_USER:20}
     window-seconds: ${CHAT_RATE_LIMIT_WINDOW_SECONDS:60}
-    max-users: ${CHAT_RATE_LIMIT_MAX_USERS:50000}  
+    max-users: ${CHAT_RATE_LIMIT_MAX_USERS:50000}
   cleanup:
-    cron: ${APP_CLEANUP_CRON:0 15 3 * * *}  
+    cron: ${APP_CLEANUP_CRON:0 15 3 * * *}
   auth-rate-limit:                       # por IP, rotas /auth/** (janela fixa, por instância)
     code-request-per-ip: ${AUTH_RATE_LIMIT_CODE_REQUEST:10}
     verify-per-ip: ${AUTH_RATE_LIMIT_VERIFY:20}

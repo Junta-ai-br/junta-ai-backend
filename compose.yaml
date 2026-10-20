@@ -10,7 +10,7 @@ services:
       POSTGRES_USER: junta_ai
       POSTGRES_PASSWORD: junta_ai
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - junta_ai_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -34,6 +34,13 @@ services:
       AI_SERVICE_BASE_URL: ${AI_SERVICE_BASE_URL:-http://host.docker.internal:8000}
       GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      MAIL_FROM: ${MAIL_FROM}
+      CONTACT_EMAIL_TO: ${CONTACT_EMAIL_TO}
+      ACCESS_CODE_EXPIRATION_MINUTES: ${ACCESS_CODE_EXPIRATION_MINUTES:-10}
     ports:
       - "8080:8080"
 

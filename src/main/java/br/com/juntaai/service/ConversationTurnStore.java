@@ -27,6 +27,7 @@ public class ConversationTurnStore {
     private final ActionExecutionRepository executions;
     private final MessageEntryRepository entries;
     private final DashboardService dashboardService;
+    private final CategoryService categoryService;
     private final ObjectMapper objectMapper;
     private final jakarta.persistence.EntityManager entityManager;
 
@@ -132,7 +133,15 @@ public class ConversationTurnStore {
 
         DashboardResponse dashboard = dashboardService.summarize(userId, from, to);
 
+        // Scope comes from the owned conversation, never from frontend metadata.
+        // Do not swallow lookup/mapping failures: no interpretation may use an unverified catalog.
+        var categoryCatalog = categoryService.listForUser(userId).stream()
+                .map(category -> new CategoryCatalogEntry(
+                        Objects.requireNonNull(category.id()), Objects.requireNonNull(category.name()),
+                        CategoryType.valueOf(category.type())))
+                .toList();
         Map<String, Object> currentState = new HashMap<>();
+        currentState.put("category_catalog", categoryCatalog);
         currentState.put("balance", dashboard.balance());
         currentState.put("totalIncome", dashboard.totalIncome());
         currentState.put("totalExpense", dashboard.totalExpense());

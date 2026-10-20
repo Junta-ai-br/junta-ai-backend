@@ -70,14 +70,30 @@ o plugin "Lombok".
 ## 3. Subindo o projeto (modo rápido, com Docker)
 
 ```bash
+# apenas se o .env ainda não existir:
 cp .env.example .env
-# edite o .env se quiser, os valores padrão já funcionam localmente
+# se o .env já existir, preserve-o e adicione apenas as variáveis ausentes
+# preencha as variáveis SMTP abaixo antes de subir o backend
 
 docker compose up --build
 ```
 
 Isso sobe o PostgreSQL e o backend. A API fica em `http://localhost:8080`,
 o Swagger em `http://localhost:8080/swagger-ui.html`.
+
+Para enviar OTP por Gmail, preencha no `.env` local `MAIL_USERNAME` com a
+conta SMTP, `MAIL_PASSWORD` com a credencial SMTP e `MAIL_FROM` com a conta
+ou um alias autorizado. Veja as orientações de senha de app em
+[docs/security.md](docs/security.md). Mantenha `MAIL_HOST=smtp.gmail.com`,
+`MAIL_PORT=587` e `ACCESS_CODE_EXPIRATION_MINUTES=10`, ou ajuste conforme
+necessário. O Compose repassa essas variáveis ao container; o profile
+`docker` exige SMTP completo para iniciar. Nunca versione as credenciais.
+
+Após atualizar o `.env`, reconstrua e recrie o backend para aplicar os valores:
+
+```bash
+docker compose up -d --build --force-recreate backend
+```
 
 O serviço de IA (`junta-ai-ai`) é um **repositório separado** — rode-o por
 conta própria (ver README dele) e garanta que `AI_SERVICE_BASE_URL` no

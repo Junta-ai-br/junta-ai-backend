@@ -29,7 +29,7 @@ class ConversationCategoryCatalogTest {
 
     @BeforeEach void setUp() {
         when(dashboard.summarize(any(), any(), any())).thenReturn(new DashboardResponse(null, null,
-                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, List.of()));
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, List.of(), null));
         when(transactions.findByUserIdAndTransactionDateBetween(any(), any(), any(), any())).thenReturn(Page.empty());
         when(goals.findByUserIdOrderByDeadlineAsc(any())).thenReturn(List.of());
     }
@@ -87,4 +87,19 @@ class ConversationCategoryCatalogTest {
         assertThat((List<?>) turns.buildFinancialSnapshot(user).current_state().get("category_catalog"))
                 .isEqualTo(List.of(new CategoryCatalogEntry(category.getId(), category.getName(), CategoryType.BOTH)));
     }
+    @Test void sharesTheExactDashboardIndicatorWithChatInsteadOfScoringRecentTransactions() {
+        var first = java.time.LocalDate.now(java.time.ZoneOffset.UTC).withDayOfMonth(1);
+        var last = first.withDayOfMonth(first.lengthOfMonth());
+        var health = new br.com.juntaai.dto.dashboard.HealthScoreResponse("mvp-monthly-v1", "CALCULATED", 65,
+                "No caminho certo", first, last);
+        when(dashboard.summarize(user, first, last)).thenReturn(new DashboardResponse(first, last,
+                new BigDecimal("1000"), new BigDecimal("500"), new BigDecimal("500"), List.of(), health));
+        when(categories.findByUserIdOrderByNameAsc(user)).thenReturn(List.of(category(user, "Personalizada", CategoryType.BOTH)));
+        var snapshot = turns.buildFinancialSnapshot(user);
+        assertThat(snapshot.indicators().get("healthScore")).isSameAs(health);
+        assertThat(snapshot.realized_records()).isEmpty();
+        assertThat(snapshot.projected_state()).isEmpty();
+        verify(dashboard).summarize(user, first, last);
+    }
+
 }

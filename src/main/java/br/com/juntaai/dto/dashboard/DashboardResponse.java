@@ -10,7 +10,8 @@ public record DashboardResponse(
         BigDecimal totalIncome,
         BigDecimal totalExpense,
         BigDecimal balance,
-        List<CategoryBreakdown> categoryBreakdown
+        List<CategoryBreakdown> categoryBreakdown,
+        HealthScoreResponse healthScore
 ) {
     public record CategoryBreakdown(String categoryName, String type, BigDecimal total) {}
 }

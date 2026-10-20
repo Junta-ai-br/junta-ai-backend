@@ -12,6 +12,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.*;
 
 @Service
@@ -173,8 +174,13 @@ public class ConversationTurnStore {
             goalProgress.put(goal.getName(), progress);
         }
 
+        // Dedicated complete month aggregate, never the truncated recent-record sample.
+        LocalDate month = LocalDate.now(ZoneOffset.UTC).withDayOfMonth(1);
+        var monthly = dashboardService.summarize(userId, month, month.withDayOfMonth(month.lengthOfMonth()));
+        Map<String, Object> indicators = monthly.healthScore() == null ? Map.of()
+                : Map.of("healthScore", monthly.healthScore());
         return new FinancialStateSnapshot(
-                null, currentState, Map.of(), realizedRecords, List.of(), goalProgress, Map.of());
+                null, currentState, Map.of(), realizedRecords, List.of(), goalProgress, indicators);
     }
 
      private ConversationContext buildContext(UUID conversationId) {

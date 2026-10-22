@@ -12,6 +12,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.*;
 
@@ -129,9 +130,10 @@ public class ConversationTurnStore {
                        PendingOperation pending, ConversationContext context, FinancialStateSnapshot snapshot) {}
     @Transactional(readOnly = true)
     public FinancialStateSnapshot buildFinancialSnapshot(UUID userId) {
-        LocalDate to = LocalDate.now();
-        LocalDate from = to.minusDays(SNAPSHOT_WINDOW_DAYS);
+        LocalDate to = LocalDate.now(ZoneId.of("America/Sao_Paulo"));
+        LocalDate from = to.withDayOfMonth(1);
 
+        // Official month-to-date aggregates; the recent records below remain a bounded sample.
         DashboardResponse dashboard = dashboardService.summarize(userId, from, to);
 
         // Scope comes from the owned conversation, never from frontend metadata.
@@ -151,7 +153,7 @@ public class ConversationTurnStore {
 
         List<Transaction> recent = transactionRepository
                 .findByUserIdAndTransactionDateBetween(
-                        userId, from, to, PageRequest.of(0, RECENT_TRANSACTIONS_LIMIT, Sort.by("transactionDate").descending()))
+                        userId, to.minusDays(SNAPSHOT_WINDOW_DAYS), to, PageRequest.of(0, RECENT_TRANSACTIONS_LIMIT, Sort.by("transactionDate").descending()))
                 .getContent();
 
         List<Map<String, Object>> realizedRecords = new ArrayList<>();

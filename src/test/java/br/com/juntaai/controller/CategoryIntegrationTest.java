@@ -38,11 +38,11 @@ class CategoryIntegrationTest extends AbstractIntegrationTest {
     void deveCriarListarAtualizarERemoverCategoria() throws Exception {
         String token = registerAndGetAccessToken("Bia", uniqueEmail("bia"), "senhaForte123");
 
-        UUID id = createCategory(token, "Alimentação", CategoryType.EXPENSE);
+        UUID id = createCategory(token, "Categoria pessoal", CategoryType.EXPENSE);
 
         mockMvc.perform(get("/categories").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].name").value("Alimentação"));
+                .andExpect(jsonPath("$[?(@.name == 'Categoria pessoal')]").isNotEmpty());
 
         mockMvc.perform(put("/categories/" + id)
                         .header("Authorization", "Bearer " + token)
@@ -57,13 +57,12 @@ class CategoryIntegrationTest extends AbstractIntegrationTest {
 
         mockMvc.perform(get("/categories").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isEmpty());
+                .andExpect(jsonPath("$.length()").value(14));
     }
 
     @Test
     void naoDevePermitirNomeDuplicadoParaOMesmoUsuario() throws Exception {
         String token = registerAndGetAccessToken("Carlos", uniqueEmail("carlos"), "senhaForte123");
-        createCategory(token, "Transporte", CategoryType.EXPENSE);
 
         mockMvc.perform(post("/categories")
                         .header("Authorization", "Bearer " + token)
@@ -78,12 +77,13 @@ class CategoryIntegrationTest extends AbstractIntegrationTest {
         String tokenDono = registerAndGetAccessToken("Dono", uniqueEmail("dono"), "senhaForte123");
         String tokenIntruso = registerAndGetAccessToken("Intruso", uniqueEmail("intruso"), "senhaForte123");
 
-        UUID categoriaDoDono = createCategory(tokenDono, "Salário", CategoryType.INCOME);
+        UUID categoriaDoDono = createCategory(tokenDono, "Receita pessoal", CategoryType.INCOME);
 
         // O intruso nem vê a categoria do dono na própria listagem...
         mockMvc.perform(get("/categories").header("Authorization", "Bearer " + tokenIntruso))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isEmpty());
+                .andExpect(jsonPath("$.length()").value(14))
+                .andExpect(jsonPath("$[*].id").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem(categoriaDoDono.toString()))));
 
         // ...e não consegue editar...
         mockMvc.perform(put("/categories/" + categoriaDoDono)
@@ -117,7 +117,7 @@ class CategoryIntegrationTest extends AbstractIntegrationTest {
 
         mockMvc.perform(get("/categories").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(jsonPath("$.length()").value(15));
     }
 
     @Test

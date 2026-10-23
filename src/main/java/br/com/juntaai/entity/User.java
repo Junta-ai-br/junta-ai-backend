@@ -45,6 +45,10 @@ public class User extends BaseEntity {
     @Column(name = "google_id", unique = true)
     private String googleId;
 
+    /** Records completed initial provisioning independently of later catalog customization. */
+    @Column(name = "initial_categories_initialized", nullable = false)
+    private boolean initialCategoriesInitialized;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     @Builder.Default

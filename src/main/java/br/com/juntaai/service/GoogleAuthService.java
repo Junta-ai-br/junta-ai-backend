@@ -28,6 +28,7 @@ public class GoogleAuthService {
 
     private final RestClient googleRestClient;
     private final UserRepository userRepository;
+    private final InitialCategoryProvisioner initialCategories;
 
     @Value("${google.oauth.client-id:}")
     private String expectedClientId;
@@ -68,7 +69,9 @@ public class GoogleAuthService {
                 .googleId(googleId)
                 .role(Role.USER)
                 .build();
-        return userRepository.save(user);
+        userRepository.save(user);
+        initialCategories.provision(user.getId());
+        return user;
     }
 
     @SuppressWarnings("unchecked")

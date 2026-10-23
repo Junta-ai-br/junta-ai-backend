@@ -24,6 +24,7 @@ public class MessageEntryStore {
     private final MessageProcessingWindow window;
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
+    private final InitialCategoryProvisioner initialCategories;
 
     public record Admission(MessageEntryRepository.Entry entry, ConversationTurnStore.Turn turn, boolean fresh) {}
 
@@ -34,6 +35,8 @@ public class MessageEntryStore {
         var entry = entries.byKey(user, key);
         boolean fresh = false;
         if (entry == null) {
+            // Lock the user before ingress inserts acquire foreign-key locks.
+            initialCategories.provision(user);
             var receipt = executions.findFirstByUserIdAndConversationIdAndCompositionPendingTrueOrderByCreatedAtAsc(user, conversationId);
             UUID messageId = UUID.randomUUID();
             fresh = entries.reserve(UUID.randomUUID(), user, conversationId, key, messageId,

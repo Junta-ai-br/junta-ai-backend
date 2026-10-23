@@ -45,6 +45,9 @@ class CategoryServiceTest {
     @BeforeEach
     void setUp() {
         categoryService = new CategoryService(categoryRepository, userRepository, transactionRepository);
+        var user = User.builder().build();
+        user.setId(userId);
+        org.mockito.Mockito.lenient().when(userRepository.findLockedById(userId)).thenReturn(Optional.of(user));
     }
 
     @Test
@@ -54,7 +57,6 @@ class CategoryServiceTest {
         user.setId(userId);
 
         when(categoryRepository.existsByUserIdAndNameIgnoreCase(userId, "Alimentação")).thenReturn(false);
-        when(userRepository.getReferenceById(userId)).thenReturn(user);
         when(categoryRepository.save(any(Category.class))).thenAnswer(invocation -> {
             Category c = invocation.getArgument(0);
             c.setId(UUID.randomUUID());
@@ -87,4 +89,16 @@ class CategoryServiceTest {
         assertThatThrownBy(() -> categoryService.findOwnedOrThrow(outroUsuarioId, categoryId))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
+    @Test
+    void naoDeveRenomearCategoriaPersonalizadaParaHomOnimoDoCatalogo() {
+        UUID categoryId = UUID.randomUUID();
+        var category = Category.builder().name("Categoria pessoal").type(CategoryType.INCOME).build();
+        category.setId(categoryId);
+        when(categoryRepository.findByIdAndUserId(categoryId, userId)).thenReturn(Optional.of(category));
+        when(categoryRepository.existsByUserIdAndNameIgnoreCase(userId, "transporte")).thenReturn(true);
+        assertThatThrownBy(() -> categoryService.update(userId, categoryId,
+                new CategoryRequest("transporte", CategoryType.INCOME))).isInstanceOf(ConflictException.class);
+        assertThat(category.getName()).isEqualTo("Categoria pessoal");
+    }
+
 }

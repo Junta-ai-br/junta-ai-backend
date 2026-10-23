@@ -34,13 +34,14 @@ class AuthServiceTest {
     @Mock private RefreshTokenService refreshTokenService;
     @Mock private EmailAccessCodeService emailAccessCodeService;
     @Mock private GoogleAuthService googleAuthService;
+    @Mock private InitialCategoryProvisioner initialCategories;
 
     private AuthService authService;
 
     @BeforeEach
     void setUp() {
         authService = new AuthService(userRepository, onboardingAnswersRepository, jwtUtil,
-                refreshTokenService, emailAccessCodeService, googleAuthService);
+                refreshTokenService, emailAccessCodeService, googleAuthService, initialCategories);
     }
 
     private void stubTokenIssuance() {

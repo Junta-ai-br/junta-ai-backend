@@ -51,6 +51,14 @@ class ConversationIntegrationTest extends AbstractIntegrationTest {
     }
 
     private UUID createCategory(String token, String name, CategoryType type) throws Exception {
+        // Reuse the approved category already persisted during registration.
+        byte[] catalog = mockMvc.perform(get("/categories").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+        for (var entry : objectMapper.readTree(catalog)) {
+            if (entry.path("name").asText().equals(name) && entry.path("type").asText().equals(type.name())) {
+                return UUID.fromString(entry.path("id").asText());
+            }
+        }
         String response = mockMvc.perform(post("/categories")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)

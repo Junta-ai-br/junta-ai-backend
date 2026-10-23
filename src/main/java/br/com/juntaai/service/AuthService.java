@@ -26,6 +26,7 @@ public class AuthService {
     private final RefreshTokenService refreshTokenService;
     private final EmailAccessCodeService emailAccessCodeService;
     private final GoogleAuthService googleAuthService;
+    private final InitialCategoryProvisioner initialCategories;
 
     /**
      * Passo 1 do cadastro: só o e-mail. Gera e envia o código — nada é
@@ -60,6 +61,7 @@ public class AuthService {
                 .build();
 
         userRepository.save(user);
+        initialCategories.provision(user.getId());
         saveOnboardingAnswersIfPresent(user, request);
 
         return issueTokens(user);

@@ -26,11 +26,10 @@ public class CategoryService {
 
     @Transactional
     public CategoryResponse create(UUID userId, CategoryRequest request) {
+        User user = lockUser(userId);
         if (categoryRepository.existsByUserIdAndNameIgnoreCase(userId, request.name())) {
             throw new ConflictException("Você já possui uma categoria com este nome.");
         }
-
-        User user = userRepository.getReferenceById(userId);
 
         Category category = Category.builder()
                 .user(user)
@@ -49,7 +48,12 @@ public class CategoryService {
 
     @Transactional
     public CategoryResponse update(UUID userId, UUID categoryId, CategoryRequest request) {
+        lockUser(userId);
         Category category = findOwnedOrThrow(userId, categoryId);
+        if (!category.getName().equalsIgnoreCase(request.name())
+                && categoryRepository.existsByUserIdAndNameIgnoreCase(userId, request.name())) {
+            throw new ConflictException("Você já possui uma categoria com este nome.");
+        }
         category.setName(request.name());
         category.setType(request.type());
         return toResponse(category);
@@ -57,6 +61,7 @@ public class CategoryService {
 
     @Transactional
     public void delete(UUID userId, UUID categoryId) {
+        lockUser(userId);
         Category category = findOwnedOrThrow(userId, categoryId);
         // O banco impede apagar categoria com transações (ON DELETE RESTRICT);
         // checamos antes para devolver 409 com mensagem clara em vez de 500.
@@ -70,6 +75,11 @@ public class CategoryService {
     public Category findOwnedOrThrow(UUID userId, UUID categoryId) {
         return categoryRepository.findByIdAndUserId(categoryId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Categoria"));
+    }
+
+    private User lockUser(UUID userId) {
+        return userRepository.findLockedById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Usuário"));
     }
 
     private CategoryResponse toResponse(Category category) {

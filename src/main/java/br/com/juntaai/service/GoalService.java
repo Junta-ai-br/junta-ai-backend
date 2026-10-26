@@ -93,6 +93,23 @@ public class GoalService {
         goalRepository.delete(goal);
     }
 
+    /** Reduz somente o acumulado da meta, sem criar movimentação financeira. */
+    @Transactional
+    public GoalResponse withdrawProgress(UUID userId, UUID goalId, BigDecimal amount) {
+        validateAmount(amount);
+        Goal goal = findOwnedOrThrow(userId, goalId);
+        if (goal.getStatus() == GoalStatus.CANCELLED) {
+            throw new BusinessRuleException("Esta meta não aceita retiradas.");
+        }
+        if (amount.compareTo(goal.getCurrentAmount()) > 0) {
+            throw new BusinessRuleException("A retirada não pode superar o valor acumulado na meta.");
+        }
+        goal.setCurrentAmount(goal.getCurrentAmount().subtract(amount));
+        goal.setStatus(goal.getCurrentAmount().compareTo(goal.getTargetAmount()) < 0
+                ? GoalStatus.IN_PROGRESS : GoalStatus.COMPLETED);
+        return toResponse(goal);
+    }
+
     private Goal findOwnedOrThrow(UUID userId, UUID goalId) {
         return goalRepository.findLockedByIdAndUserId(goalId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Meta"));

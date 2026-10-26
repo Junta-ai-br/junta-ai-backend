@@ -60,6 +60,30 @@ sessão em sessionStorage. Depois de reload, relê metas/histórico e bloqueia n
 envios até conferência e descarte explícito do aviso de resultado incerto.
 Não há reenvio automático ou endpoint adicional de recuperação de recibos.
 
+## Importação de simulação salva como meta — Incremento C
+
+`POST /planner/simulations/{id}/goal`, autenticado, exige um único
+`Idempotency-Key` UUID. Corpo: `{ "deadline": null, "confirmReimport": false }`.
+Retorna 200 com GoalResponse após commit. Nome/alvo vêm da simulação do usuário;
+progresso começa em zero. Meses e valor mensal simulados não viram prazo/aporte.
+A simulação original permanece preservada.
+
+V12 (`V12__planner_goal_imports.sql`) mantém vínculo único por simulação e depende
+das tabelas existentes de metas/simulações e dos recibos V11. Mesmo comando recupera
+o recibo; outra chave para simulação já vinculada retorna 409
+`simulation_already_imported` no campo `mensagem`. Simulação inexistente/estrangeira
+retorna 404. Após excluir a meta, o vínculo fica sem goal_id: nova importação exige
+`confirmReimport: true`, senão retorna 409 `simulation_reimport_confirmation_required`.
+Uma nova importação confirmada cria outro ID com progresso zero, sem restauração.
+Prazo passado ou nome/valor fora dos limites do domínio de metas retorna 400.
+
+Integrar backend/V12 antes do frontend. Não há dependência do AI Service ou de uma
+branch do Incremento B. A interface solicita confirmação, deixa vencimento vazio,
+bloqueia cliques concorrentes e reutiliza a chave em retry com resposta incerta.
+Após reload, o vínculo persistente continua impedindo nova meta duplicada; o
+Assistente consulta a listagem oficial ao abrir. Nenhuma gravação ocorre ao salvar
+ou listar simulações.
+
 ## Dashboard
 `GET /dashboard?from=YYYY-MM-DD&to=YYYY-MM-DD`
 

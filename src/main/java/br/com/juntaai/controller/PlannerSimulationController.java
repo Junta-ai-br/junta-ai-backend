@@ -2,6 +2,11 @@ package br.com.juntaai.controller;
 
 import br.com.juntaai.dto.planner.SimulationRequest;
 import br.com.juntaai.dto.planner.SimulationResponse;
+import br.com.juntaai.dto.planner.GoalImportRequest;
+import br.com.juntaai.dto.goal.GoalResponse;
+import br.com.juntaai.service.GoalCommandService;
+import br.com.juntaai.exception.BusinessRuleException;
+import org.springframework.http.HttpHeaders;
 import br.com.juntaai.security.AuthenticatedUser;
 import br.com.juntaai.service.PlannerSimulationService;
 import jakarta.validation.Valid;
@@ -17,6 +22,22 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class PlannerSimulationController {
     private final PlannerSimulationService service;
+    private final GoalCommandService commands;
+
+    @PostMapping("/{id}/goal")
+    public ResponseEntity<GoalResponse> importGoal(@AuthenticationPrincipal AuthenticatedUser user,
+            @PathVariable UUID id, @RequestHeader HttpHeaders headers, @Valid @RequestBody GoalImportRequest body) {
+        var keys = headers.get("Idempotency-Key");
+        if (keys != null && keys.size() == 1) {
+            try {
+                UUID key = UUID.fromString(keys.getFirst());
+                if (key.toString().equalsIgnoreCase(keys.getFirst())) {
+                    return ResponseEntity.ok(commands.importSimulation(user.getId(), key, id, body));
+                }
+            } catch (IllegalArgumentException ignored) { /* Reject ambiguous/invalid identity. */ }
+        }
+        throw new BusinessRuleException("Use um único Idempotency-Key com UUID válido.");
+    }
 
     @PostMapping
     public ResponseEntity<SimulationResponse> create(@AuthenticationPrincipal AuthenticatedUser user,

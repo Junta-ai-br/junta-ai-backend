@@ -7,6 +7,7 @@ public enum Operation {
     @JsonProperty("expense") EXPENSE,
     @JsonProperty("income") INCOME,
     @JsonProperty("goal_contribution") GOAL_CONTRIBUTION,
+    @JsonProperty("goal_withdrawal") GOAL_WITHDRAWAL,
     @JsonProperty("category_update") CATEGORY_UPDATE,
     @JsonProperty("correction") CORRECTION,
     @JsonProperty("recurring_confirmation") RECURRING_CONFIRMATION,

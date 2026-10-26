@@ -116,9 +116,18 @@ envolver **uma ou duas chamadas** do Backend para a IA:
 |-----------------------|------------------------------------------------------------|
 | `expense` / `income`  | Cria uma `Transaction` (categoria resolvida pelo nome).    |
 | `goal_contribution`   | Aplica aporte via `GoalService.addProgress`.                |
+| `goal_withdrawal`     | Retira progresso via `GoalService.withdrawProgress`, sem transação financeira. |
 | `category_update`, `correction`, `recurring_confirmation` | Ainda não implementadas — o Backend responde `unavailable`, nunca finge sucesso. |
 
 ### Contrato de dados (nomes de campo em snake_case, iguais ao Pydantic)
+
+No Incremento B, `goal_withdrawal` reutiliza `monetary_value` positivo,
+`goal_reference` e `transaction_type=goal_withdrawal`, sem categoria. A meta deve
+ter uma única correspondência do usuário. A retirada não supera o acumulado,
+usa o mesmo bloqueio/recibo do executor e pode reabrir uma meta COMPLETED.
+Excesso de retirada produz recibo REJECTED com `goal_insufficient_progress`.
+Nenhum endpoint HTTP, tabela ou migration foi adicionado. Integrar backend antes
+do AI Service que emite a nova operação; o frontend mantém sua recarga existente.
 
 Ver `br.com.juntaai.integration.ai.model` — cada classe tem um comentário
 apontando para o arquivo Python equivalente em `junta-ai-ai`. Os

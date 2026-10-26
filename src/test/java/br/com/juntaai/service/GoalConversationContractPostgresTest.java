@@ -16,6 +16,27 @@ import static org.assertj.core.api.Assertions.*;
 @EnabledIfEnvironmentVariable(named="GOALS_REAL_AI", matches="true")
 @TestPropertySource(properties="ai.service.base-url=http://127.0.0.1:58123")
 class GoalConversationContractPostgresTest extends AbstractIntegrationTest {
+    @Test void realHttpWithdrawalConfirmsReopensAndReplays() {
+        jdbc.update("update goals set target_amount=100,current_amount=100,status='COMPLETED' where id=?",goal);
+        UUID conversation=conversations.createConversation(user,"Synthetic").id(),key=UUID.randomUUID();
+        var input=new ChatMessageRequest("Tirei 50 reais da minha meta de viagem.");
+        var reply=conversations.sendMessage(user,conversation,input,key);
+        assertThat(reply.actionExecuted()).isTrue();
+        assertThat(reply.assistantMessage().content()).contains("retirada");
+        conversations.sendMessage(user,conversation,input,key);
+        assertThat(jdbc.queryForObject("select current_amount from goals where id=?",BigDecimal.class,goal)).isEqualByComparingTo("50.00");
+        assertThat(jdbc.queryForObject("select status from goals where id=?",String.class,goal)).isEqualTo("IN_PROGRESS");
+        assertThat(jdbc.queryForObject("select count(*) from transactions where user_id=?",Integer.class,user)).isZero();
+    }
+    @Test void realHttpWithdrawalClarifiesMissingAmountAndGoal() {
+        jdbc.update("update goals set current_amount=100 where id=?",goal);
+        UUID conversation=conversations.createConversation(user,"Synthetic").id();
+        assertThat(conversations.sendMessage(user,conversation,new ChatMessageRequest("Retirei da minha meta de viagem."),UUID.randomUUID()).actionExecuted()).isFalse();
+        assertThat(conversations.sendMessage(user,conversation,new ChatMessageRequest("25 reais"),UUID.randomUUID()).actionExecuted()).isTrue();
+        assertThat(conversations.sendMessage(user,conversation,new ChatMessageRequest("Tirei 10 reais."),UUID.randomUUID()).actionExecuted()).isFalse();
+        assertThat(conversations.sendMessage(user,conversation,new ChatMessageRequest("viagem"),UUID.randomUUID()).actionExecuted()).isTrue();
+        assertThat(jdbc.queryForObject("select current_amount from goals where id=?",BigDecimal.class,goal)).isEqualByComparingTo("65.00");
+    }
     @Autowired ConversationService conversations;
     @Autowired GoalCommandService commands;
     @Autowired JdbcTemplate jdbc;

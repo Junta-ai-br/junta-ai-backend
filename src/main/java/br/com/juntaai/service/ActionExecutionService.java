@@ -124,7 +124,7 @@ public class ActionExecutionService {
     private Effect executeEffect(UUID userId, ActionRequest action) {
         ParsedFinancialData p = action.payload();
         if (action.operation() != Operation.EXPENSE && action.operation() != Operation.INCOME
-                && action.operation() != Operation.GOAL_CONTRIBUTION) {
+                && action.operation() != Operation.GOAL_CONTRIBUTION && action.operation() != Operation.GOAL_WITHDRAWAL) {
             return new Effect(new ExecutionConfirmation(action.action_id(), ExecutionStatus.UNAVAILABLE,
                     null, null, "operation_unavailable"), null);
         }
@@ -135,13 +135,20 @@ public class ActionExecutionService {
             return rejected(action, "financial_data_invalid");
         }
         UUID effectId;
-        if (action.operation() == Operation.GOAL_CONTRIBUTION) {
+        if (action.operation() == Operation.GOAL_CONTRIBUTION || action.operation() == Operation.GOAL_WITHDRAWAL) {
             var matches = goals.findLockedByUserIdAndName(userId, p.goal_reference());
             if (matches.size() != 1 || p.category() != null) return rejected(action, "goal_unresolved");
             Goal goal = matches.getFirst();
             entityManager.refresh(goal);
-            if (goal.getStatus() != GoalStatus.IN_PROGRESS) return rejected(action, "goal_ineligible");
-            goalService.addProgress(userId, goal.getId(), p.monetary_value());
+            if (action.operation() == Operation.GOAL_WITHDRAWAL) {
+                if (goal.getStatus() == GoalStatus.CANCELLED) return rejected(action, "goal_ineligible");
+                if (p.monetary_value().compareTo(goal.getCurrentAmount()) > 0) return rejected(action, "goal_insufficient_progress");
+                if (p.monetary_value().compareTo(new java.math.BigDecimal("999999999999999.99")) > 0) return rejected(action, "financial_data_invalid");
+                goalService.withdrawProgress(userId, goal.getId(), p.monetary_value());
+            } else {
+                if (goal.getStatus() != GoalStatus.IN_PROGRESS) return rejected(action, "goal_ineligible");
+                goalService.addProgress(userId, goal.getId(), p.monetary_value());
+            }
             effectId = goal.getId();
         } else {
             var matches = categories.findByUserIdOrderByNameAsc(userId).stream()

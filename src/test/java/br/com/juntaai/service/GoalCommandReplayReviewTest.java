@@ -27,7 +27,7 @@ class GoalCommandReplayReviewTest {
         });
         when(jdbc.queryForMap(anyString(),eq(user),eq(key))).thenAnswer(call -> Map.of(
                 "request_json",request.get(),"response_json",mapper.writeValueAsString(response)));
-        var service=new GoalCommandService(domain,jdbc,mapper);
+        var service=new GoalCommandService(domain,jdbc,mapper,mock(PlannerGoalImportService.class));
         assertThat(service.create(user,key,new GoalRequest("Viagem",new BigDecimal("100.00"),past))).isEqualTo(response);
         assertThatThrownBy(() -> service.create(user,key,new GoalRequest("Outra",new BigDecimal("100.00"),past))).isInstanceOf(ConflictException.class);
         assertThatThrownBy(() -> service.progress(user,key,id,BigDecimal.ONE)).isInstanceOf(ConflictException.class);

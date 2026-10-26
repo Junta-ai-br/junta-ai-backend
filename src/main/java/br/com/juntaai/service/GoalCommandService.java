@@ -2,6 +2,7 @@ package br.com.juntaai.service;
 
 import br.com.juntaai.dto.goal.GoalRequest;
 import br.com.juntaai.dto.goal.GoalResponse;
+import br.com.juntaai.dto.planner.GoalImportRequest;
 import br.com.juntaai.exception.ConflictException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,12 @@ public class GoalCommandService {
     private final GoalService goals;
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
+    private final PlannerGoalImportService imports;
+
+    @Transactional
+    public GoalResponse importSimulation(UUID user, UUID key, UUID simulation, GoalImportRequest body) {
+        return command(user, key, new Input("import_simulation", simulation, body), () -> imports.importGoal(user, simulation, body));
+    }
 
     @Transactional
     public GoalResponse create(UUID user, UUID key, GoalRequest body) {

@@ -36,6 +36,30 @@ Todas as rotas abaixo exigem header `Authorization: Bearer <accessToken>`.
 ## Metas
 `GET|POST /goals`, `PUT|DELETE /goals/{id}`, `PATCH /goals/{id}/progress`
 
+`POST`, `PATCH /{id}/progress` e `DELETE` exigem exatamente um
+`Idempotency-Key` em formato UUID completo. Ausência, formato inválido,
+valores separados por vírgula ou cabeçalhos repetidos retornam 400.
+Repetir a mesma chave e os mesmos dados recupera o resultado original:
+200 com `GoalResponse` em criação/aporte, 204 na exclusão, inclusive após
+a meta ter sido excluída. Após exclusão, um recibo anterior de criação/aporte
+é histórico; consulte `GET /goals` para o estado atual.
+
+O namespace é `(usuário autenticado, chave)`. Operação, ID da meta e corpo
+integram a identidade da solicitação: reutilizar a chave em outra operação,
+meta ou corpo retorna 409 depois de um resultado persistido. Usuários
+diferentes podem usar a mesma chave sem compartilhar recibos.
+Efeito e recibo são atômicos; falhas com rollback não reservam a chave nem
+persistem o resultado de erro. Uma nova tentativa após rollback será reavaliada.
+A validação temporal do prazo ocorre no domínio apenas quando há nova gravação;
+um replay não perde seu recibo porque o vencimento passou.
+
+Persistir/reutilizar a identidade da tentativa no cliente é obrigatório para
+deduplicação. Uma nova chave é outra operação, mesmo com o mesmo conteúdo.
+No fechamento do MVP, o frontend preserva somente a chave opaca vinculada à
+sessão em sessionStorage. Depois de reload, relê metas/histórico e bloqueia novos
+envios até conferência e descarte explícito do aviso de resultado incerto.
+Não há reenvio automático ou endpoint adicional de recuperação de recibos.
+
 ## Dashboard
 `GET /dashboard?from=YYYY-MM-DD&to=YYYY-MM-DD`
 
@@ -55,6 +79,11 @@ Todas as rotas abaixo exigem header `Authorization: Bearer <accessToken>`.
 > `br.com.juntaai.integration.ai.model` deste repositório.
 
 O Backend chama `POST {AI_SERVICE_BASE_URL}/v1/conversations/process`.
+
+No Incremento A de metas, `financial_state.goal_progress` usa UUID da meta como
+chave; cada valor contém `id`, `name`, `targetAmount`, `currentAmount` e `status`.
+Os nomes não são chaves únicas. O AI Service usa o nome explícito para resolver
+uma pergunta pendente; a autorização e a seleção final permanecem no backend.
 
 ### Visão geral do fluxo
 

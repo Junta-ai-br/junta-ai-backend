@@ -24,6 +24,13 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class GoalServiceTest {
+    @Test
+    void newWritesStillRejectPastDeadlines() {
+        var request = new GoalRequest("Viagem", new BigDecimal("100.00"), java.time.LocalDate.now().minusDays(1));
+        assertThatThrownBy(() -> goalService.create(userId, request)).isInstanceOf(BusinessRuleException.class);
+        assertThatThrownBy(() -> goalService.update(userId, goalId, request)).isInstanceOf(BusinessRuleException.class);
+        org.mockito.Mockito.verifyNoInteractions(goalRepository, userRepository);
+    }
 
     @Mock
     private GoalRepository goalRepository;
@@ -55,7 +62,7 @@ class GoalServiceTest {
     @Test
     void deveMarcarMetaComoConcluidaQuandoAporteAtingeValorAlvo() {
         Goal goal = buildGoal(new BigDecimal("1000.00"), new BigDecimal("900.00"), GoalStatus.IN_PROGRESS);
-        when(goalRepository.findByIdAndUserId(goalId, userId)).thenReturn(Optional.of(goal));
+        when(goalRepository.findLockedByIdAndUserId(goalId, userId)).thenReturn(Optional.of(goal));
 
         var response = goalService.addProgress(userId, goalId, new BigDecimal("150.00"));
 
@@ -66,7 +73,7 @@ class GoalServiceTest {
     @Test
     void naoDeveAceitarAporteEmMetaJaConcluida() {
         Goal goal = buildGoal(new BigDecimal("1000.00"), new BigDecimal("1000.00"), GoalStatus.COMPLETED);
-        when(goalRepository.findByIdAndUserId(goalId, userId)).thenReturn(Optional.of(goal));
+        when(goalRepository.findLockedByIdAndUserId(goalId, userId)).thenReturn(Optional.of(goal));
 
         assertThatThrownBy(() -> goalService.addProgress(userId, goalId, new BigDecimal("50.00")))
                 .isInstanceOf(BusinessRuleException.class);
@@ -75,7 +82,7 @@ class GoalServiceTest {
     @Test
     void naoDevePermitirEditarMetaConcluida() {
         Goal goal = buildGoal(new BigDecimal("1000.00"), new BigDecimal("1000.00"), GoalStatus.COMPLETED);
-        when(goalRepository.findByIdAndUserId(goalId, userId)).thenReturn(Optional.of(goal));
+        when(goalRepository.findLockedByIdAndUserId(goalId, userId)).thenReturn(Optional.of(goal));
 
         GoalRequest request = new GoalRequest("Viagem 2", new BigDecimal("2000.00"), null);
 

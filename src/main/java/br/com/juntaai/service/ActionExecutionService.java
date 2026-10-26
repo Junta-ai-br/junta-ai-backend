@@ -136,11 +136,9 @@ public class ActionExecutionService {
         }
         UUID effectId;
         if (action.operation() == Operation.GOAL_CONTRIBUTION) {
-            var matches = goals.findByUserIdOrderByDeadlineAsc(userId).stream()
-                    .filter(g -> g.getName().equalsIgnoreCase(p.goal_reference())).toList();
+            var matches = goals.findLockedByUserIdAndName(userId, p.goal_reference());
             if (matches.size() != 1 || p.category() != null) return rejected(action, "goal_unresolved");
             Goal goal = matches.getFirst();
-            entityManager.lock(goal, LockModeType.PESSIMISTIC_WRITE);
             entityManager.refresh(goal);
             if (goal.getStatus() != GoalStatus.IN_PROGRESS) return rejected(action, "goal_ineligible");
             goalService.addProgress(userId, goal.getId(), p.monetary_value());

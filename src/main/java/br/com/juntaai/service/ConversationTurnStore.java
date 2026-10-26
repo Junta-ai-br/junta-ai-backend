@@ -170,10 +170,12 @@ public class ConversationTurnStore {
         Map<String, Object> goalProgress = new HashMap<>();
         for (Goal goal : goalRepository.findByUserIdOrderByDeadlineAsc(userId)) {
             Map<String, Object> progress = new HashMap<>();
+            progress.put("id", goal.getId().toString());
+            progress.put("name", goal.getName());
             progress.put("targetAmount", goal.getTargetAmount());
             progress.put("currentAmount", goal.getCurrentAmount());
             progress.put("status", goal.getStatus().name());
-            goalProgress.put(goal.getName(), progress);
+            goalProgress.put(goal.getId().toString(), progress);
         }
 
         // Dedicated complete month aggregate, never the truncated recent-record sample.

@@ -2,7 +2,6 @@ package br.com.juntaai.dto.goal;
 
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
-import jakarta.validation.constraints.FutureOrPresent;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -21,6 +20,6 @@ public record GoalRequest(
         @Digits(integer = 15, fraction = 2, message = "Valor fora do limite permitido (até 15 dígitos e 2 casas decimais).")
         BigDecimal targetAmount,
 
-        @FutureOrPresent(message = "O prazo não pode ser no passado.")
+        // Temporal eligibility belongs to a new domain write, after receipt lookup.
         LocalDate deadline
 ) {}

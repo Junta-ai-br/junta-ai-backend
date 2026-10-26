@@ -158,7 +158,8 @@ public class ConversationService {
             // Financial result was committed before this call; leave durable composition pending.
         }
         // Only clear the pending operation if the same state still belongs to this execution.
-        boolean clearPending = complete && executed && java.util.Objects.equals(turn.pendingBefore(), receipt.pendingStateBefore());
+        boolean clearPending = complete && (executed || receipt.action().operation() == Operation.CORRECTION)
+                && java.util.Objects.equals(turn.pendingBefore(), receipt.pendingStateBefore());
         ChatReplyResponse result = turns.finish(userId, conversationId, turn, reply, null, clearPending,
                 receipt.actionId(), complete, executed && !recovering);
         return contextual(result, recovering);

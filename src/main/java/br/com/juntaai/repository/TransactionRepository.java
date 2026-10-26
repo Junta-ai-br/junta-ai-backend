@@ -18,6 +18,13 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
 
     Optional<Transaction> findByIdAndUserId(UUID id, UUID userId);
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from Transaction t where t.id = :id and t.user.id = :userId")
+    Optional<Transaction> findLockedByIdAndUserId(@Param("id") UUID id, @Param("userId") UUID userId);
+
+    @EntityGraph(attributePaths = "category")
+    Page<Transaction> findByUserId(UUID userId, Pageable pageable);
+
     boolean existsByCategoryIdAndUserId(UUID categoryId, UUID userId);
 
     // Carrega a categoria junto (1 consulta em vez de 1 por transação) — evita

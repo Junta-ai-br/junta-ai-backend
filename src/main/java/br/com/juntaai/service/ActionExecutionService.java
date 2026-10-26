@@ -91,6 +91,9 @@ public class ActionExecutionService {
         Effect effect;
         if (action.expires_at() != null && !Instant.now().isBefore(action.expires_at())) {
             effect = rejected(action, "action_expired");
+        } else if (action.operation() == Operation.CORRECTION
+                && !confirmedCorrection(message.getContent(), expectedPendingState, action.payload())) {
+            effect = rejected(action, "correction_confirmation_required");
         } else {
             effect = executeEffect(userId, action);
         }
@@ -123,6 +126,8 @@ public class ActionExecutionService {
 
     private Effect executeEffect(UUID userId, ActionRequest action) {
         ParsedFinancialData p = action.payload();
+        if (action.operation() == Operation.CORRECTION) return correct(userId, action);
+        if (p.correction_target() != null) return rejected(action, "financial_data_invalid");
         if (action.operation() != Operation.EXPENSE && action.operation() != Operation.INCOME
                 && action.operation() != Operation.GOAL_CONTRIBUTION && action.operation() != Operation.GOAL_WITHDRAWAL) {
             return new Effect(new ExecutionConfirmation(action.action_id(), ExecutionStatus.UNAVAILABLE,
@@ -173,6 +178,44 @@ public class ActionExecutionService {
     private Effect rejected(ActionRequest action, String reason) {
         return new Effect(new ExecutionConfirmation(action.action_id(), ExecutionStatus.REJECTED,
                 null, null, reason), null);
+    }
+
+    private boolean confirmedCorrection(String reply, String pendingJson, ParsedFinancialData payload) {
+        if (!java.util.Set.of("sim", "confirmo", "pode confirmar", "sim, pode confirmar")
+                .contains(reply.strip().toLowerCase(java.util.Locale.ROOT).replaceAll("[.!]+$", ""))) return false;
+        try {
+            var pending = mapper.readValue(pendingJson, PendingOperation.class);
+            return pending.operation() == Operation.CORRECTION
+                    && pending.state() == PendingState.CORRECTION
+                    && pending.unresolved_fields().equals(java.util.List.of("confirmation"))
+                    && mapper.valueToTree(pending.known_fields()).equals(mapper.valueToTree(payload));
+        } catch (Exception ignored) { return false; }
+    }
+
+    private Effect correct(UUID userId, ActionRequest action) {
+        var p = action.payload();
+        if (p.correction_target() == null || p.correction_target().id() == null
+                || p.correction_target().updated_at() == null || p.goal_reference() != null
+                || (p.transaction_type() != Operation.INCOME && p.transaction_type() != Operation.EXPENSE)
+                || p.monetary_value() == null || p.monetary_value().signum() <= 0
+                || p.monetary_value().stripTrailingZeros().scale() > 2
+                || p.monetary_value().compareTo(new java.math.BigDecimal("999999999999999.99")) > 0) {
+            return rejected(action, "financial_data_invalid");
+        }
+        var matches = categories.findByUserIdOrderByNameAsc(userId).stream()
+                .filter(c -> c.getName().equalsIgnoreCase(p.category())).toList();
+        if (matches.size() != 1) return rejected(action, "category_unresolved");
+        var category = matches.getFirst();
+        TransactionType type = p.transaction_type() == Operation.INCOME ? TransactionType.INCOME : TransactionType.EXPENSE;
+        if (category.getType() != CategoryType.BOTH && !category.getType().name().equals(type.name())) {
+            return rejected(action, "category_ineligible");
+        }
+        var updated = transactions.correct(userId, p.correction_target().id(), p.correction_target().updated_at(),
+                type, category.getId(), p.monetary_value());
+        if (updated == null) return rejected(action, "transaction_missing_or_changed");
+        entityManager.flush();
+        return new Effect(new ExecutionConfirmation(action.action_id(), ExecutionStatus.SUCCESSFUL,
+                Operation.CORRECTION, turns.buildFinancialSnapshot(userId), null), updated.id());
     }
 
     private Receipt receipt(ActionExecution e) {

@@ -141,9 +141,33 @@ envolver **uma ou duas chamadas** do Backend para a IA:
 | `expense` / `income`  | Cria uma `Transaction` (categoria resolvida pelo nome).    |
 | `goal_contribution`   | Aplica aporte via `GoalService.addProgress`.                |
 | `goal_withdrawal`     | Retira progresso via `GoalService.withdrawProgress`, sem transação financeira. |
-| `category_update`, `correction`, `recurring_confirmation` | Ainda não implementadas — o Backend responde `unavailable`, nunca finge sucesso. |
+| `correction` | Corrige valor e/ou categoria de uma transação do usuário após proposta e confirmação explícita. |
+| `category_update`, `recurring_confirmation` | Ainda não implementadas — o Backend responde `unavailable`, nunca finge sucesso. |
 
 ### Contrato de dados (nomes de campo em snake_case, iguais ao Pydantic)
+
+Correção conversacional reutiliza `ActionRequest`, `PendingOperation` e os recibos
+existentes. O payload acrescenta `correction_target: {id, updated_at}` opcional
+(nulo nas outras operações), apontando para a revisão proposta da transação.
+`transaction_type` continua sendo `income` ou `expense`, o tipo original.
+Valor e categoria no payload são os valores finais explicitamente propostos.
+O executor exige mensagem afirmativa e payload igual à proposta persistida
+(`pending_correction`, operação `correction`, campo pendente `confirmation`).
+
+O snapshot autenticado acrescenta `id`, `updated_at` e `created_at` aos registros,
+`current_state.last_transaction_id` quando não há empate na última criação, e
+`correction_records_complete`. Mantém a lista recente limitada a dez registros
+dos últimos 90 dias e inclui a última criação quando não estiver nessa lista.
+Uma lista parcial exige escolha explícita do registro; não prova unicidade.
+
+O backend bloqueia a linha, valida propriedade, tipo, revisão e categoria, e
+reutiliza `TransactionService.update`, preservando ID, tipo, descrição e data.
+Atualizações pela interface também obtêm o bloqueio da linha. Revisão divergente,
+registro removido ou de outro usuário produzem recibo rejeitado sem alteração.
+Repetição da mesma mensagem/ação recupera os recibos existentes.
+Uma rejeição confirmada de correção encerra sua proposta para exigir nova identificação.
+Não há endpoint, migration, tabela ou alteração no MCP experimental.
+Integrar backend antes do AI Service. O frontend reutiliza a recarga financeira do chat.
 
 No Incremento B, `goal_withdrawal` reutiliza `monetary_value` positivo,
 `goal_reference` e `transaction_type=goal_withdrawal`, sem categoria. A meta deve

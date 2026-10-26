@@ -31,6 +31,7 @@ class ConversationCategoryCatalogTest {
         when(dashboard.summarize(any(), any(), any())).thenReturn(new DashboardResponse(null, null,
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, List.of(), null));
         when(transactions.findByUserIdAndTransactionDateBetween(any(), any(), any(), any())).thenReturn(Page.empty());
+        when(transactions.findByUserId(any(), any())).thenReturn(Page.empty());
         when(goals.findByUserIdOrderByDeadlineAsc(any())).thenReturn(List.of());
     }
 

@@ -4,6 +4,7 @@ import br.com.juntaai.dto.transaction.TransactionRequest;
 import br.com.juntaai.dto.transaction.TransactionResponse;
 import br.com.juntaai.entity.Category;
 import br.com.juntaai.entity.Transaction;
+import br.com.juntaai.entity.TransactionType;
 import br.com.juntaai.entity.User;
 import br.com.juntaai.exception.ResourceNotFoundException;
 import br.com.juntaai.repository.TransactionRepository;
@@ -28,6 +29,8 @@ public class TransactionService {
     private final TransactionRepository transactionRepository;
     private final UserRepository userRepository;
     private final CategoryService categoryService;
+    @jakarta.persistence.PersistenceContext
+    private jakarta.persistence.EntityManager entityManager;
 
     @Transactional
     public TransactionResponse create(UUID userId, TransactionRequest request) {
@@ -70,7 +73,8 @@ public class TransactionService {
 
     @Transactional
     public TransactionResponse update(UUID userId, UUID transactionId, TransactionRequest request) {
-        Transaction transaction = findOwnedOrThrow(userId, transactionId);
+        Transaction transaction = transactionRepository.findLockedByIdAndUserId(transactionId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Transação"));
         Category category = categoryService.findOwnedOrThrow(userId, request.categoryId());
 
         transaction.setCategory(category);
@@ -80,6 +84,20 @@ public class TransactionService {
         transaction.setTransactionDate(request.transactionDate());
 
         return toResponse(transaction);
+    }
+
+    /** Null means missing, foreign or stale; no mutation and a durable rejection receipt. */
+    @Transactional
+    public TransactionResponse correct(UUID userId, UUID transactionId, java.time.Instant revision,
+            TransactionType type, UUID categoryId, java.math.BigDecimal amount) {
+        Transaction transaction = transactionRepository.findLockedByIdAndUserId(transactionId, userId).orElse(null);
+        if (transaction == null) return null;
+        // A request snapshot may already have loaded this row into the persistence context.
+        entityManager.refresh(transaction);
+        if (revision == null || !revision.equals(transaction.getUpdatedAt())
+                || type != transaction.getType()) return null;
+        return update(userId, transactionId, new TransactionRequest(categoryId, transaction.getType(),
+                transaction.getDescription(), amount, transaction.getTransactionDate()));
     }
 
     @Transactional

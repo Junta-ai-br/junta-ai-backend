@@ -150,6 +150,14 @@ public class ConversationTurnStore {
         currentState.put("totalExpense", dashboard.totalExpense());
         currentState.put("periodFrom", from.toString());
         currentState.put("periodTo", to.toString());
+        // Last means most recently registered, independently of its financial date.
+        var lastPage = transactionRepository.findByUserId(userId,
+                PageRequest.of(0, 2, Sort.by(Sort.Direction.DESC, "createdAt")));
+        var last = lastPage.getContent();
+        if (!last.isEmpty() && (last.size() == 1
+                || !last.getFirst().getCreatedAt().equals(last.get(1).getCreatedAt()))) {
+            currentState.put("last_transaction_id", last.getFirst().getId().toString());
+        }
 
         List<Transaction> recent = transactionRepository
                 .findByUserIdAndTransactionDateBetween(
@@ -160,6 +168,24 @@ public class ConversationTurnStore {
         for (Transaction transaction : recent) {
             Map<String, Object> record = new HashMap<>();
             record.put("category", transaction.getCategory().getName());
+            record.put("id", transaction.getId().toString());
+            record.put("updated_at", transaction.getUpdatedAt().toString());
+            record.put("created_at", transaction.getCreatedAt().toString());
+            record.put("type", transaction.getType().name());
+            record.put("amount", transaction.getAmount());
+            record.put("description", transaction.getDescription());
+            record.put("date", transaction.getTransactionDate().toString());
+            realizedRecords.add(record);
+        }
+        // Include an older last registration when it falls outside the recent date window.
+        if (currentState.containsKey("last_transaction_id") && realizedRecords.stream()
+                .noneMatch(item -> item.get("id").equals(currentState.get("last_transaction_id")))) {
+            Transaction transaction = last.getFirst();
+            Map<String, Object> record = new HashMap<>();
+            record.put("id", transaction.getId().toString());
+            record.put("updated_at", transaction.getUpdatedAt().toString());
+            record.put("created_at", transaction.getCreatedAt().toString());
+            record.put("category", transaction.getCategory().getName());
             record.put("type", transaction.getType().name());
             record.put("amount", transaction.getAmount());
             record.put("description", transaction.getDescription());
@@ -167,6 +193,7 @@ public class ConversationTurnStore {
             realizedRecords.add(record);
         }
 
+        currentState.put("correction_records_complete", lastPage.getTotalElements() == realizedRecords.size());
         Map<String, Object> goalProgress = new HashMap<>();
         for (Goal goal : goalRepository.findByUserIdOrderByDeadlineAsc(userId)) {
             Map<String, Object> progress = new HashMap<>();

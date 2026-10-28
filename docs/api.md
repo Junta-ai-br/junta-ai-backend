@@ -169,6 +169,30 @@ Uma rejeição confirmada de correção encerra sua proposta para exigir nova id
 Não há endpoint, migration, tabela ou alteração no MCP experimental.
 Integrar backend antes do AI Service. O frontend reutiliza a recarga financeira do chat.
 
+A correção P0 de aportes exige confirmação explícita antes de executar
+`goal_contribution`. O AI Service resolve uma única meta do snapshot autenticado
+e devolve uma proposta com `state=pending_goal`,
+`unresolved_fields=["confirmation"]`, `known_fields` contendo o payload
+completo e `target_reference` contendo o UUID da meta. São campos já existentes;
+não há novo endpoint, migration ou alteração de schema.
+
+São aceitas somente `sim`, `confirmo`, `pode confirmar` e `sim, pode confirmar`.
+AI Service e Backend colapsam espaços ASCII (incluindo tabulação e CR/LF) e NBSP,
+removem espaços externos, convertem para minúsculas e retiram pontos/exclamações
+finais. Não removem acentos ou palavras: `pode  confirmar` é válido; `SÍM`,
+negativas, perguntas, cancelamentos e novas instruções não autorizam o aporte.
+Uma revisão de valor/meta substitui a proposta e exige nova confirmação; alvo
+inexistente ou ambíguo exige esclarecimento, sem reutilizar o alvo anterior.
+
+O Backend exige uma resposta afirmativa inequívoca correspondente à proposta
+persistida, payload idêntico e `temporal_status=realized`. Revalida sob bloqueio
+o nome exato e único no escopo do usuário e o UUID proposto. Ausência ou divergência
+de consentimento/identidade produz REJECTED com
+`goal_contribution_confirmation_required`. Falhas da consulta continuam sendo
+falhas de execução, sem recibo falso de sucesso. Permanecem os limites de valor,
+a elegibilidade da meta, o ledger e a idempotência existentes. O aporte continua
+alterando somente o progresso da meta, sem criar despesa.
+
 No Incremento B, `goal_withdrawal` reutiliza `monetary_value` positivo,
 `goal_reference` e `transaction_type=goal_withdrawal`, sem categoria. A meta deve
 ter uma única correspondência do usuário. A retirada não supera o acumulado,

@@ -94,6 +94,9 @@ public class ActionExecutionService {
         } else if (action.operation() == Operation.CORRECTION
                 && !confirmedCorrection(message.getContent(), expectedPendingState, action.payload())) {
             effect = rejected(action, "correction_confirmation_required");
+        } else if (action.operation() == Operation.GOAL_CONTRIBUTION
+                && !confirmedContribution(userId, message.getContent(), expectedPendingState, action.payload())) {
+            effect = rejected(action, "goal_contribution_confirmation_required");
         } else {
             effect = executeEffect(userId, action);
         }
@@ -178,6 +181,30 @@ public class ActionExecutionService {
     private Effect rejected(ActionRequest action, String reason) {
         return new Effect(new ExecutionConfirmation(action.action_id(), ExecutionStatus.REJECTED,
                 null, null, reason), null);
+    }
+
+    private boolean confirmedContribution(UUID userId, String reply, String pendingJson, ParsedFinancialData payload) {
+        if (pendingJson == null || payload.temporal_status() != TemporalStatus.REALIZED
+                || !java.util.Set.of("sim", "confirmo", "pode confirmar", "sim, pode confirmar")
+                    .contains(reply.replaceAll("[\\s\\u00A0]+", " ").replaceAll("^ +| +$", "")
+                        .toLowerCase(java.util.Locale.ROOT).replaceAll("[.!]+$", "").replaceAll(" +$", ""))) return false;
+        PendingOperation pending;
+        UUID target;
+        try {
+            pending = mapper.readValue(pendingJson, PendingOperation.class);
+            if (pending == null || pending.operation() != Operation.GOAL_CONTRIBUTION
+                    || pending.state() != PendingState.GOAL
+                    || !java.util.List.of("confirmation").equals(pending.unresolved_fields())
+                    || pending.target_reference() == null
+                    || !mapper.valueToTree(pending.known_fields()).equals(mapper.valueToTree(payload))) return false;
+            target = UUID.fromString(pending.target_reference());
+        } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException ex) {
+            return false;
+        }
+        // Resolve only this authenticated user's exact, unique name under lock.
+        // Query failures propagate: they are not reclassified as missing consent.
+        var matches = goals.findLockedByUserIdAndName(userId, payload.goal_reference());
+        return matches.size() == 1 && target.equals(matches.getFirst().getId());
     }
 
     private boolean confirmedCorrection(String reply, String pendingJson, ParsedFinancialData payload) {

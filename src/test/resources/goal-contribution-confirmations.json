@@ -1,0 +1,90 @@
+[
+  {
+    "text": "sim",
+    "accepted": true
+  },
+  {
+    "text": "SIM!",
+    "accepted": true
+  },
+  {
+    "text": "confirmo",
+    "accepted": true
+  },
+  {
+    "text": "pode confirmar",
+    "accepted": true
+  },
+  {
+    "text": "pode  confirmar",
+    "accepted": true
+  },
+  {
+    "text": " pode\tconfirmar! ",
+    "accepted": true
+  },
+  {
+    "text": "sim,  pode confirmar",
+    "accepted": true
+  },
+  {
+    "text": "pode\nconfirmar",
+    "accepted": true
+  },
+  {
+    "text": "pode\u00a0confirmar",
+    "accepted": true
+  },
+  {
+    "text": "",
+    "accepted": false
+  },
+  {
+    "text": "nao",
+    "accepted": false
+  },
+  {
+    "text": "n\u00e3o",
+    "accepted": false
+  },
+  {
+    "text": "n\u00e3o confirmo",
+    "accepted": false
+  },
+  {
+    "text": "cancelar",
+    "accepted": false
+  },
+  {
+    "text": "cancela",
+    "accepted": false
+  },
+  {
+    "text": "talvez",
+    "accepted": false
+  },
+  {
+    "text": "sim?",
+    "accepted": false
+  },
+  {
+    "text": "sim, mas use 200",
+    "accepted": false
+  },
+  {
+    "text": "Guardei R$ 200 para viagem",
+    "accepted": false
+  },
+  {
+    "text": "sim para Carro",
+    "accepted": false
+  },
+  {
+    "text": "S\u00cdM",
+    "accepted": false
+  },
+  {
+    "text": "sim. !",
+    "accepted": false
+  }
+]

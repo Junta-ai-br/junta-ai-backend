@@ -51,9 +51,14 @@ class GoalConversationContractPostgresTest extends AbstractIntegrationTest {
         UUID conversation=conversations.createConversation(user,"Synthetic").id();
         UUID key=UUID.randomUUID();
         var input=new ChatMessageRequest("Separei 150 reais para minha viagem.");
-        var reply=conversations.sendMessage(user,conversation,input,key);
+        var proposal=conversations.sendMessage(user,conversation,input,key);
+        assertThat(proposal.actionExecuted()).isFalse();
+        assertThat(proposal.assistantMessage().content()).contains("Confirma");
+        UUID confirmationKey=UUID.randomUUID();
+        var confirmation=new ChatMessageRequest("sim");
+        var reply=conversations.sendMessage(user,conversation,confirmation,confirmationKey);
         assertThat(reply.actionExecuted()).isTrue();
-        conversations.sendMessage(user,conversation,input,key);
+        conversations.sendMessage(user,conversation,confirmation,confirmationKey);
         assertThat(jdbc.queryForObject("select current_amount from goals where id=?",BigDecimal.class,goal)).isEqualByComparingTo("150.00");
         assertThat(jdbc.queryForObject("select count(*) from action_executions where user_id=?",Integer.class,user)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from transactions where user_id=?",Integer.class,user)).isZero();
@@ -61,7 +66,8 @@ class GoalConversationContractPostgresTest extends AbstractIntegrationTest {
     @Test void realHttpClarificationThenContribution() {
         UUID conversation=conversations.createConversation(user,"Synthetic").id();
         assertThat(conversations.sendMessage(user,conversation,new ChatMessageRequest("Guardei para minha viagem."),UUID.randomUUID()).actionExecuted()).isFalse();
-        assertThat(conversations.sendMessage(user,conversation,new ChatMessageRequest("50 reais"),UUID.randomUUID()).actionExecuted()).isTrue();
+        assertThat(conversations.sendMessage(user,conversation,new ChatMessageRequest("50 reais"),UUID.randomUUID()).actionExecuted()).isFalse();
+        assertThat(conversations.sendMessage(user,conversation,new ChatMessageRequest("sim"),UUID.randomUUID()).actionExecuted()).isTrue();
         assertThat(jdbc.queryForObject("select current_amount from goals where id=?",BigDecimal.class,goal)).isEqualByComparingTo("50.00");
     }
     @Test void realHttpHomonymsCannotExecute() {
@@ -73,7 +79,8 @@ class GoalConversationContractPostgresTest extends AbstractIntegrationTest {
     @Test void realHttpMissingGoalUsesExactPendingName() {
         UUID conversation=conversations.createConversation(user,"Synthetic").id();
         assertThat(conversations.sendMessage(user,conversation,new ChatMessageRequest("Guardei 25 reais."),UUID.randomUUID()).actionExecuted()).isFalse();
-        assertThat(conversations.sendMessage(user,conversation,new ChatMessageRequest("viagem"),UUID.randomUUID()).actionExecuted()).isTrue();
+        assertThat(conversations.sendMessage(user,conversation,new ChatMessageRequest("viagem"),UUID.randomUUID()).actionExecuted()).isFalse();
+        assertThat(conversations.sendMessage(user,conversation,new ChatMessageRequest("sim"),UUID.randomUUID()).actionExecuted()).isTrue();
         assertThat(jdbc.queryForObject("select current_amount from goals where id=?",BigDecimal.class,goal)).isEqualByComparingTo("25.00");
     }
 }

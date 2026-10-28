@@ -100,29 +100,45 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
                 TemporalStatus.REALIZED, null), "authoritative_state", Instant.now().plusSeconds(600));
     }
 
-    @Test void goalContributionAndReceiptAreAtomicAndIdempotent() {
+    private String contributionProposal(ActionRequest action, UUID goal) throws Exception {
+        String pending = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(new PendingOperation(
+                PendingState.GOAL, Operation.GOAL_CONTRIBUTION, action.payload(), List.of("confirmation"), goal.toString()));
+        jdbc.update("update conversations set pending_state=? where id=?", pending, conversation);
+        jdbc.update("update messages set content='sim' where id=?", message);
+        return pending;
+    }
+
+    @Test void goalContributionAndReceiptAreAtomicAndIdempotent() throws Exception {
         UUID goal = UUID.randomUUID();
         jdbc.update("insert into goals(id,user_id,name,target_amount) values(?,?,'Target',100)", goal, user);
         var action = contribution(UUID.randomUUID().toString());
-        assertThat(execute(action).confirmation().status()).isEqualTo(ExecutionStatus.SUCCESSFUL);
+        String consent = contributionProposal(action, goal);
+        assertThat(executions.execute(user, conversation, message, "backend-origin", action, consent).confirmation().status()).isEqualTo(ExecutionStatus.SUCCESSFUL);
         execute(action);
         assertThat(jdbc.queryForObject("select current_amount from goals where id=?", BigDecimal.class, goal))
                 .isEqualByComparingTo("10.00");
         assertThat(records()).isEqualTo(1); assertThat(effects()).isZero();
     }
 
-    @Test void foreignAndAmbiguousGoalNamesCannotSelectUnauthorizedTarget() {
+    @Test void foreignAndAmbiguousGoalNamesCannotSelectUnauthorizedTarget() throws Exception {
         UUID other = UUID.randomUUID(), otherGoal = UUID.randomUUID();
         jdbc.update("insert into users(id,name,email) values(?,?,?)", other, "Other", other + "@test.invalid");
         jdbc.update("insert into goals(id,user_id,name,target_amount) values(?,?,'Target',100)", otherGoal, other);
-        assertThat(execute(contribution(UUID.randomUUID().toString())).confirmation().status()).isEqualTo(ExecutionStatus.REJECTED);
+        var foreignAction = contribution(UUID.randomUUID().toString());
+        String foreignConsent = contributionProposal(foreignAction, otherGoal);
+        assertThat(executions.execute(user, conversation, message, "backend-origin", foreignAction, foreignConsent).confirmation().status()).isEqualTo(ExecutionStatus.REJECTED);
         assertThat(jdbc.queryForObject("select current_amount from goals where id=?", BigDecimal.class, otherGoal)).isEqualByComparingTo("0");
         // Finish the negative receipt before proposing a separate ambiguous action.
         when(ai.process(any())).thenAnswer(inv -> response(inv.getArgument(0), "execution_confirmation_not_matching", null));
         conversations.sendMessage(user, conversation, new ChatMessageRequest("retomar"), UUID.randomUUID());
         assertThat(pending()).isFalse();
-        for (int i = 0; i < 2; i++) jdbc.update("insert into goals(id,user_id,name,target_amount) values(?,?,'Target',100)", UUID.randomUUID(), user);
-        assertThat(execute(contribution(UUID.randomUUID().toString())).confirmation().reason()).isEqualTo("goal_unresolved");
+        UUID firstGoal = UUID.randomUUID();
+        jdbc.update("insert into goals(id,user_id,name,target_amount) values(?,?,'Target',100)", firstGoal, user);
+        jdbc.update("insert into goals(id,user_id,name,target_amount) values(?,?,'Target',100)", UUID.randomUUID(), user);
+        var ambiguousAction = contribution(UUID.randomUUID().toString());
+        String ambiguousConsent = contributionProposal(ambiguousAction, firstGoal);
+        assertThat(executions.execute(user, conversation, message, "backend-origin", ambiguousAction, ambiguousConsent).confirmation().reason())
+                .isEqualTo("goal_contribution_confirmation_required");
         assertThat(jdbc.queryForObject("select sum(current_amount) from goals where user_id=?", BigDecimal.class, user)).isEqualByComparingTo("0");
     }
 

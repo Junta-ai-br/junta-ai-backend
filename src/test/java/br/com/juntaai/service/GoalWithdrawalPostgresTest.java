@@ -19,6 +19,7 @@ class GoalWithdrawalPostgresTest extends AbstractIntegrationTest {
     @Autowired ActionExecutionService actions;
     @Autowired JdbcTemplate jdbc;
     @MockBean AiClient ai;
+    @Autowired com.fasterxml.jackson.databind.ObjectMapper mapper;
     UUID user,goal;
     @BeforeEach void seed() throws Exception {
         try(var c=jdbc.getDataSource().getConnection()){assertThat(c.getMetaData().getURL()).contains("junta_i3_disposable_");}
@@ -26,15 +27,21 @@ class GoalWithdrawalPostgresTest extends AbstractIntegrationTest {
         jdbc.update("insert into users(id,name,email) values(?,?,?)",user,"Synthetic",user+"@test.invalid");
         jdbc.update("insert into goals(id,user_id,name,target_amount,current_amount) values(?,?,'viagem',200,100)",goal,user);
     }
-    record Turn(UUID conversation,UUID message,ActionRequest action){}
+    record Turn(UUID conversation,UUID message,ActionRequest action,String pending){}
     Turn turn(String name,String amount){
         UUID c=UUID.randomUUID(),m=UUID.randomUUID();
         jdbc.update("insert into conversations(id,user_id) values(?,?)",c,user);
-        jdbc.update("insert into messages(id,conversation_id,role,content) values(?,?,'USER','synthetic')",m,c);
-        return new Turn(c,m,new ActionRequest(UUID.randomUUID().toString(),Operation.GOAL_WITHDRAWAL,
-                new ParsedFinancialData(new BigDecimal(amount),"synthetic",null,null,null,name,Operation.GOAL_WITHDRAWAL,TemporalStatus.REALIZED,null),"authoritative_state",Instant.now().plusSeconds(600)));
+        jdbc.update("insert into messages(id,conversation_id,role,content) values(?,?,'USER','sim')",m,c);
+        var action = new ActionRequest(UUID.randomUUID().toString(),Operation.GOAL_WITHDRAWAL,
+                new ParsedFinancialData(new BigDecimal(amount),"synthetic",null,null,null,name,Operation.GOAL_WITHDRAWAL,TemporalStatus.REALIZED,null),"authoritative_state",Instant.now().plusSeconds(600));
+        try {
+            String pending = mapper.writeValueAsString(new PendingOperation(PendingState.GOAL, Operation.GOAL_WITHDRAWAL,
+                    action.payload(), java.util.List.of("confirmation"), goal.toString()));
+            jdbc.update("update conversations set pending_state=? where id=?", pending, c);
+            return new Turn(c,m,action,pending);
+        } catch (Exception ex) { throw new IllegalStateException(ex); }
     }
-    ActionExecutionService.Receipt execute(Turn t){return actions.execute(user,t.conversation(),t.message(),"synthetic",t.action(),null);}
+    ActionExecutionService.Receipt execute(Turn t){return actions.execute(user,t.conversation(),t.message(),"synthetic",t.action(),t.pending());}
     BigDecimal current(){return jdbc.queryForObject("select current_amount from goals where id=?",BigDecimal.class,goal);}
     @Test void withdrawalAndReceiptAreAtomicAndReplayDoesNotSubtractTwice(){
         var t=turn("viagem","50.25"); var first=execute(t);
@@ -49,12 +56,12 @@ class GoalWithdrawalPostgresTest extends AbstractIntegrationTest {
         var excess=turn("viagem","100.01");
         assertThat(execute(excess).confirmation().reason()).isEqualTo("goal_insufficient_progress");
         assertThat(execute(excess).confirmation().status()).isEqualTo(ExecutionStatus.REJECTED);
-        assertThat(execute(turn("inexistente","1")).confirmation().reason()).isEqualTo("goal_unresolved");
+        assertThat(execute(turn("inexistente","1")).confirmation().reason()).isEqualTo("goal_withdrawal_confirmation_required");
         UUID other=UUID.randomUUID();jdbc.update("insert into users(id,name,email) values(?,?,?)",other,"Other",other+"@test.invalid");
         jdbc.update("insert into goals(id,user_id,name,target_amount,current_amount) values(?,?,'foreign',100,100)",UUID.randomUUID(),other);
-        assertThat(execute(turn("foreign","1")).confirmation().reason()).isEqualTo("goal_unresolved");
+        assertThat(execute(turn("foreign","1")).confirmation().reason()).isEqualTo("goal_withdrawal_confirmation_required");
         jdbc.update("insert into goals(id,user_id,name,target_amount,current_amount) values(?,?,'viagem',200,100)",UUID.randomUUID(),user);
-        assertThat(execute(turn("viagem","1")).confirmation().reason()).isEqualTo("goal_unresolved");
+        assertThat(execute(turn("viagem","1")).confirmation().reason()).isEqualTo("goal_withdrawal_confirmation_required");
         assertThat(current()).isEqualByComparingTo("100");
     }
     @Test void withdrawalReopensCompletedGoal(){

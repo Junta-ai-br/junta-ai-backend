@@ -103,14 +103,14 @@ public class ConversationTurnStore {
                 return new ChatReplyResponse(conversationId, turn.userMessage(), response(accepted), actionExecuted);
             }
         }
-        if (replacePending && Objects.equals(conversation.getPendingState(), turn.pendingBefore())
-                && (evidence == null || Objects.equals(conversation.getPendingState(), evidence.getPendingStateBefore()))) {
-            savePendingOperation(conversation, pending);
-        }
+        boolean updatePending = replacePending && Objects.equals(conversation.getPendingState(), turn.pendingBefore())
+                && (evidence == null || Objects.equals(conversation.getPendingState(), evidence.getPendingStateBefore()));
         Message assistant = messageRepository.saveAndFlush(Message.builder().conversation(conversation)
                 .role(MessageRole.ASSISTANT).content(reply).build());
         // Replay uses the stored PostgreSQL timestamp (microsecond precision), including the first reply.
         entityManager.refresh(assistant);
+        if (updatePending) savePendingOperation(conversation,
+                pending == null ? null : pending.withPrompt(assistant.getId().toString()));
         if (evidence != null && compositionComplete) {
             evidence.setCompositionMessageId(assistant.getId());
             evidence.setCompositionPending(false);
@@ -124,7 +124,7 @@ public class ConversationTurnStore {
                 .orElseThrow(() -> new ResourceNotFoundException("Conversa"));
     }
     private MessageResponse response(Message m) {
-        return new MessageResponse(m.getId(), m.getRole().name(), m.getContent(), m.getCreatedAt());
+        return ConversationOptions.response(m, objectMapper);
     }
     public record Turn(UUID messageId, MessageResponse userMessage, String pendingBefore,
                        PendingOperation pending, ConversationContext context, FinancialStateSnapshot snapshot) {}
@@ -146,6 +146,7 @@ public class ConversationTurnStore {
         Map<String, Object> currentState = new HashMap<>();
         currentState.put("category_catalog", categoryCatalog);
         currentState.put("balance", dashboard.balance());
+        currentState.put("saved", dashboard.saved());
         currentState.put("totalIncome", dashboard.totalIncome());
         currentState.put("totalExpense", dashboard.totalExpense());
         currentState.put("periodFrom", from.toString());

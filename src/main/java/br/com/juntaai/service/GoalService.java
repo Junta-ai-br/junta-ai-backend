@@ -90,6 +90,9 @@ public class GoalService {
     @Transactional
     public void delete(UUID userId, UUID goalId) {
         Goal goal = findOwnedOrThrow(userId, goalId);
+        if (goal.getCurrentAmount().signum() > 0) {
+            throw new BusinessRuleException("Retire o valor guardado antes de excluir a meta.");
+        }
         goalRepository.delete(goal);
     }
 

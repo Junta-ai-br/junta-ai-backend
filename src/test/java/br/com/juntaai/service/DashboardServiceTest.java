@@ -2,6 +2,7 @@ package br.com.juntaai.service;
 
 import br.com.juntaai.entity.TransactionType;
 import br.com.juntaai.repository.TransactionRepository;
+import br.com.juntaai.repository.GoalRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,6 +24,7 @@ class DashboardServiceTest {
 
     @Mock
     private TransactionRepository transactionRepository;
+    @Mock private GoalRepository goalRepository;
 
     private DashboardService dashboardService;
 
@@ -32,11 +34,12 @@ class DashboardServiceTest {
 
     @BeforeEach
     void setUp() {
-        dashboardService = new DashboardService(transactionRepository);
+        dashboardService = new DashboardService(transactionRepository, goalRepository);
     }
 
     @Test
     void deveCalcularSaldoComoReceitaMenosDespesa() {
+        when(goalRepository.sumCurrentAmountByUserId(userId)).thenReturn(new BigDecimal("9999.99"));
         when(transactionRepository.sumByUserAndTypeAndPeriod(userId, TransactionType.INCOME, from, to))
                 .thenReturn(new BigDecimal("3000.00"));
         when(transactionRepository.sumByUserAndTypeAndPeriod(userId, TransactionType.EXPENSE, from, to))
@@ -47,6 +50,8 @@ class DashboardServiceTest {
         assertThat(response.totalIncome()).isEqualByComparingTo("3000.00");
         assertThat(response.totalExpense()).isEqualByComparingTo("1200.50");
         assertThat(response.balance()).isEqualByComparingTo("1799.50");
+        assertThat(response.saved()).isEqualByComparingTo("9999.99");
+        org.mockito.Mockito.verify(goalRepository).sumCurrentAmountByUserId(userId);
     }
 
     @Test

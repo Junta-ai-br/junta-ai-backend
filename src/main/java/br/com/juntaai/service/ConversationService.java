@@ -53,6 +53,7 @@ public class ConversationService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
     public List<MessageResponse> listMessages(UUID userId, UUID conversationId) {
         findOwnedOrThrow(userId, conversationId);
         // As 200 mais recentes, devolvidas em ordem cronológica.
@@ -69,7 +70,7 @@ public class ConversationService {
         if (key == null || key.version() != 4 || key.variant() != 2) {
             throw new MessageEntryException(HttpStatus.BAD_REQUEST, "idempotency_key_invalid");
         }
-        var admission = entries.admit(userId, conversationId, key, request.message());
+        var admission = admit(userId, conversationId, key, request);
         var entry = admission.entry();
         var turn = admission.turn();
         if ("FAILED".equals(entry.state())) throw MessageEntryException.failed();
@@ -88,7 +89,7 @@ public class ConversationService {
 
         // Only the admission winner can interpret. A retry never enters this branch.
         var firstCall = new AIServiceRequest(entry.requestId(), "1", conversationId.toString(),
-                request.message(), turn.context(), turn.pending(), null, turn.snapshot(), null);
+                request.effectiveMessage(), turn.context(), turn.pending(), null, turn.snapshot(), null, request.quickReply());
         try {
             ProcessingResult result = correlated(firstCall, aiClient.process(firstCall));
             if (result.decision().type() == br.com.juntaai.integration.ai.model.DecisionType.ACTION_REQUEST) {
@@ -108,12 +109,17 @@ public class ConversationService {
             // Guarded update can only terminate PROCESSING, never a selected/committed entry.
             if (!entries.failInitial(userId, conversationId, turn.messageId())) {
                 // A commit whose response was lost may already have selected/finalized the entry.
-                return resumeSelected(userId, conversationId, entries.admit(userId, conversationId, key, request.message()));
+                return resumeSelected(userId, conversationId, admit(userId, conversationId, key, request));
             }
             throw MessageEntryException.failed();
         }
         // Reload the persisted selection, not the mutable AI result.
-        return resumeSelected(userId, conversationId, entries.admit(userId, conversationId, key, request.message()));
+        return resumeSelected(userId, conversationId, admit(userId, conversationId, key, request));
+    }
+
+    private MessageEntryStore.Admission admit(UUID user, UUID conversation, UUID key, ChatMessageRequest request) {
+        return request.quickReply() == null ? entries.admit(user, conversation, key, request.message())
+                : entries.admit(user, conversation, key, request.effectiveMessage(), request.quickReply());
     }
 
     private ChatReplyResponse resumeSelected(UUID userId, UUID conversationId, MessageEntryStore.Admission admission) {
@@ -192,7 +198,7 @@ public class ConversationService {
     }
 
     private MessageResponse toResponse(Message m) {
-        return new MessageResponse(m.getId(), m.getRole().name(), m.getContent(), m.getCreatedAt());
+        return ConversationOptions.response(m, mapper);
     }
 
 }

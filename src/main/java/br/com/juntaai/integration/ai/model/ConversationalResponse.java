@@ -4,5 +4,8 @@ import java.util.List;
 
 public record ConversationalResponse(
         String message,
-        List<String> claims
-) {}
+        List<String> claims,
+        List<QuickReplySelection> quick_replies
+) {
+    public ConversationalResponse(String message, List<String> claims) { this(message, claims, List.of()); }
+}

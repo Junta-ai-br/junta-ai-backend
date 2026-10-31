@@ -11,7 +11,8 @@ public record DashboardResponse(
         BigDecimal totalExpense,
         BigDecimal balance,
         List<CategoryBreakdown> categoryBreakdown,
-        HealthScoreResponse healthScore
+        HealthScoreResponse healthScore,
+        BigDecimal saved
 ) {
     public record CategoryBreakdown(String categoryName, String type, BigDecimal total) {}
 }

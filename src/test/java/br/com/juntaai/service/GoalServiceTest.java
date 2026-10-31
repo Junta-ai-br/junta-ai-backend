@@ -25,6 +25,22 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class GoalServiceTest {
     @Test
+    void fundedGoalCannotBeDeletedEvenWhenCompleted() {
+        Goal goal = buildGoal(new BigDecimal("100"), new BigDecimal("100.01"), GoalStatus.COMPLETED);
+        when(goalRepository.findLockedByIdAndUserId(goalId, userId)).thenReturn(Optional.of(goal));
+        assertThatThrownBy(() -> goalService.delete(userId, goalId)).isInstanceOf(BusinessRuleException.class);
+        org.mockito.Mockito.verify(goalRepository, org.mockito.Mockito.never()).delete(any(Goal.class));
+    }
+
+    @Test
+    void emptyGoalCanBeDeletedUsingTheSameLockAsContributions() {
+        Goal goal = buildGoal(new BigDecimal("100"), BigDecimal.ZERO, GoalStatus.IN_PROGRESS);
+        when(goalRepository.findLockedByIdAndUserId(goalId, userId)).thenReturn(Optional.of(goal));
+        goalService.delete(userId, goalId);
+        org.mockito.Mockito.verify(goalRepository).delete(goal);
+    }
+
+    @Test
     void newWritesStillRejectPastDeadlines() {
         var request = new GoalRequest("Viagem", new BigDecimal("100.00"), java.time.LocalDate.now().minusDays(1));
         assertThatThrownBy(() -> goalService.create(userId, request)).isInstanceOf(BusinessRuleException.class);

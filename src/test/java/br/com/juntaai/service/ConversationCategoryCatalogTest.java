@@ -29,7 +29,7 @@ class ConversationCategoryCatalogTest {
 
     @BeforeEach void setUp() {
         when(dashboard.summarize(any(), any(), any())).thenReturn(new DashboardResponse(null, null,
-                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, List.of(), null));
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, List.of(), null, BigDecimal.ZERO));
         when(transactions.findByUserIdAndTransactionDateBetween(any(), any(), any(), any())).thenReturn(Page.empty());
         when(transactions.findByUserId(any(), any())).thenReturn(Page.empty());
         when(goals.findByUserIdOrderByDeadlineAsc(any())).thenReturn(List.of());
@@ -94,13 +94,14 @@ class ConversationCategoryCatalogTest {
         var health = new br.com.juntaai.dto.dashboard.HealthScoreResponse("mvp-monthly-v1", "CALCULATED", 65,
                 "No caminho certo", first, last);
         when(dashboard.summarize(user, first, last)).thenReturn(new DashboardResponse(first, last,
-                new BigDecimal("1000"), new BigDecimal("500"), new BigDecimal("500"), List.of(), health));
+                new BigDecimal("1000"), new BigDecimal("500"), new BigDecimal("500"), List.of(), health, BigDecimal.ZERO));
         when(categories.findByUserIdOrderByNameAsc(user)).thenReturn(List.of(category(user, "Personalizada", CategoryType.BOTH)));
         var snapshot = turns.buildFinancialSnapshot(user);
         assertThat(snapshot.indicators().get("healthScore")).isSameAs(health);
         assertThat(snapshot.realized_records()).isEmpty();
         assertThat(snapshot.projected_state()).isEmpty();
-        verify(dashboard).summarize(user, first, last);
+        // Month-to-date and full-month score windows coincide on the last day.
+        verify(dashboard, times(java.time.LocalDate.now(java.time.ZoneId.of("America/Sao_Paulo")).equals(last) ? 2 : 1)).summarize(user, first, last);
     }
 
 }

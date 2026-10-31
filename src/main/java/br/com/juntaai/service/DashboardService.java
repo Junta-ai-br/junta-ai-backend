@@ -4,6 +4,7 @@ import br.com.juntaai.dto.dashboard.DashboardResponse;
 import br.com.juntaai.dto.dashboard.HealthScoreResponse;
 import br.com.juntaai.entity.TransactionType;
 import br.com.juntaai.repository.TransactionRepository;
+import br.com.juntaai.repository.GoalRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +25,7 @@ import java.util.UUID;
 public class DashboardService {
 
     private final TransactionRepository transactionRepository;
+    private final GoalRepository goalRepository;
 
     public DashboardResponse summarize(UUID userId, LocalDate from, LocalDate to) {
         BigDecimal totalIncome = transactionRepository.sumByUserAndTypeAndPeriod(
@@ -38,7 +40,8 @@ public class DashboardService {
         List<DashboardResponse.CategoryBreakdown> breakdown = List.of();
 
         return new DashboardResponse(from, to, totalIncome, totalExpense, balance, breakdown,
-                calculateHealthScore(totalIncome, totalExpense, from, to));
+                calculateHealthScore(totalIncome, totalExpense, from, to),
+                goalRepository.sumCurrentAmountByUserId(userId));
     }
 
     private HealthScoreResponse calculateHealthScore(BigDecimal income, BigDecimal expenses, LocalDate from, LocalDate to) {

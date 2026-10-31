@@ -25,6 +25,7 @@ class GoalWritePostgresTest extends AbstractIntegrationTest {
     @Autowired ConversationTurnStore turns;
     @Autowired JdbcTemplate jdbc;
     @MockBean AiClient ai;
+    @Autowired com.fasterxml.jackson.databind.ObjectMapper mapper;
     UUID user, goal;
 
     @BeforeEach void seed() throws Exception {
@@ -47,6 +48,7 @@ class GoalWritePostgresTest extends AbstractIntegrationTest {
         var receipt = commands.progress(user, progress, goal, new BigDecimal("25.01"));
         assertThat(commands.progress(user, progress, goal, new BigDecimal("25.01"))).isEqualTo(receipt);
         assertThat(accumulated()).isEqualByComparingTo("25.01");
+        goals.withdrawProgress(user, goal, new BigDecimal("25.01"));
         UUID deletion = UUID.randomUUID(); commands.delete(user, deletion, goal); commands.delete(user, deletion, goal);
         assertThat(jdbc.queryForObject("select count(*) from goals where id=?", Integer.class, goal)).isZero();
     }
@@ -75,16 +77,19 @@ class GoalWritePostgresTest extends AbstractIntegrationTest {
     @Test void chatAndHttpSerializeAndChatReplayHasNoSecondEffect() throws Exception {
         UUID conversation=UUID.randomUUID(), message=UUID.randomUUID();
         jdbc.update("insert into conversations(id,user_id) values(?,?)", conversation,user);
-        jdbc.update("insert into messages(id,conversation_id,role,content) values(?,?,'USER','synthetic')",message,conversation);
+        jdbc.update("insert into messages(id,conversation_id,role,content) values(?,?,'USER','sim')",message,conversation);
         var action = new ActionRequest(UUID.randomUUID().toString(), Operation.GOAL_CONTRIBUTION,
                 new ParsedFinancialData(new BigDecimal("25.01"), "synthetic", null, null, null, "Viagem", Operation.GOAL_CONTRIBUTION, TemporalStatus.REALIZED, null), "authoritative_state", Instant.now().plusSeconds(600));
+        String pending = mapper.writeValueAsString(new PendingOperation(PendingState.GOAL,Operation.GOAL_CONTRIBUTION,
+                action.payload(),java.util.List.of("confirmation"),goal.toString()));
+        jdbc.update("update conversations set pending_state=? where id=?",pending,conversation);
         var pool=Executors.newFixedThreadPool(2);
         try {
-            var a=pool.submit(() -> actions.execute(user,conversation,message,"synthetic",action,null));
+            var a=pool.submit(() -> actions.execute(user,conversation,message,"synthetic",action,pending));
             var b=pool.submit(() -> commands.progress(user,UUID.randomUUID(),goal,new BigDecimal("10.02")));
             var receipt=a.get(20,TimeUnit.SECONDS); b.get(20,TimeUnit.SECONDS);
             assertThat(receipt.confirmation().status()).isEqualTo(ExecutionStatus.SUCCESSFUL);
-            assertThat(actions.execute(user,conversation,message,"synthetic",action,null).confirmation()).isEqualTo(receipt.confirmation());
+            assertThat(actions.execute(user,conversation,message,"synthetic",action,pending).confirmation()).isEqualTo(receipt.confirmation());
             assertThat(accumulated()).isEqualByComparingTo("35.03");
             assertThat(jdbc.queryForObject("select count(*) from transactions where user_id=?",Integer.class,user)).isZero();
         } finally { pool.shutdownNow(); }
@@ -98,6 +103,8 @@ class GoalWritePostgresTest extends AbstractIntegrationTest {
         }
         assertThat(goals.addProgress(user,goal,new BigDecimal("1000.00")).status()).isEqualTo("COMPLETED");
         assertThatThrownBy(() -> goals.addProgress(user,goal,BigDecimal.ONE)).isInstanceOf(BusinessRuleException.class);
+        assertThatThrownBy(() -> goals.delete(user,goal)).isInstanceOf(BusinessRuleException.class);
+        goals.withdrawProgress(user, goal, new BigDecimal("1000.00"));
         goals.delete(user,goal);
         assertThatThrownBy(() -> goals.addProgress(user,goal,BigDecimal.ONE)).isInstanceOf(ResourceNotFoundException.class);
     }

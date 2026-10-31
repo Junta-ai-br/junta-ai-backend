@@ -30,10 +30,36 @@ public class MessageEntryStore {
 
     @Transactional
     public Admission admit(UUID user, UUID conversationId, UUID key, String content) {
+        return admit(user, conversationId, key, content, null);
+    }
+
+    @Transactional
+    public Admission admit(UUID user, UUID conversationId, UUID key, String content, QuickReplySelection selection) {
         var conversation = conversations.findLockedByIdAndUserId(conversationId, user)
                 .orElseThrow(() -> new ResourceNotFoundException("Conversa"));
         var entry = entries.byKey(user, key);
         boolean fresh = false;
+        if (selection != null) {
+            validateSelection(conversationId, entry == null ? conversation.getPendingState() : entry.pendingBefore(), selection);
+            if (!content.equals(selection.label())) throw new MessageEntryException(HttpStatus.CONFLICT, "quick_reply_stale");
+            if (entry == null) {
+                // The owned conversation is locked. Late callbacks cannot select expired entries.
+                // Never expire a selected action or a receipt awaiting composition.
+                jdbc.update("""
+                        update conversation_message_entries
+                        set state='FAILED',failure_code='message_processing_failed',updated_at=clock_timestamp()
+                        where user_id=? and conversation_id=? and pending_state_before=?
+                        and state='PROCESSING' and processing_deadline <= clock_timestamp()
+                        and selected_action_id is null and selected_action_json is null and receipt_action_id is null
+                        """, user, conversationId, conversation.getPendingState());
+            }
+            if (entry == null && Boolean.TRUE.equals(jdbc.queryForObject("""
+                    select exists(select 1 from conversation_message_entries where conversation_id=?
+                    and pending_state_before=? and state in ('PROCESSING','ACTION_SELECTED','RECEIPT_PENDING'))
+                    """, Boolean.class, conversationId, conversation.getPendingState()))) {
+                throw new MessageEntryException(HttpStatus.CONFLICT, "quick_reply_in_progress");
+            }
+        }
         if (entry == null) {
             // Lock the user before ingress inserts acquire foreign-key locks.
             initialCategories.provision(user);
@@ -56,6 +82,18 @@ public class MessageEntryStore {
         }
         // Existing ingress never needs another interpretation snapshot or financial read.
         return new Admission(entry, turns.restore(entry.messageId(), entry.pendingBefore(), fresh), fresh);
+    }
+
+    private void validateSelection(UUID conversation, String pendingJson, QuickReplySelection selection) {
+        try {
+            var pending = mapper.readValue(pendingJson, PendingOperation.class);
+            if (pending.operation() != Operation.GOAL_CONTRIBUTION
+                    || !java.util.List.of("funding_source").equals(pending.unresolved_fields())
+                    || pending.pending_id() == null || !pending.pending_id().equals(selection.pending_id())
+                    || !conversation.toString().equals(selection.conversation_id())
+                    || !conversation.toString().equals(pending.conversation_id())) throw new IllegalArgumentException();
+            selection.label();
+        } catch (Exception ex) { throw new MessageEntryException(HttpStatus.CONFLICT, "quick_reply_stale"); }
     }
 
     @Transactional

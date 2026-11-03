@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.Semaphore;
 
 @Service
 public class PublicFormMailService {
@@ -23,15 +24,19 @@ public class PublicFormMailService {
     private final Validator validator;
     private final String from;
     private final String to;
+    private final Semaphore permits;
 
     public PublicFormMailService(JavaMailSender sender, MailProperties properties, Validator validator,
                                  @Value("${app.mail.from:}") String from,
-                                 @Value("${app.mail.contact-to:}") String to) {
+                                 @Value("${app.mail.contact-to:}") String to,
+                                 @Value("${app.public-forms.max-concurrent-sends:2}") int maxConcurrentSends) {
+        if (maxConcurrentSends < 1) throw new IllegalArgumentException("A concorrência dos formulários deve ser positiva.");
         this.sender = sender;
         this.properties = properties;
         this.validator = validator;
         this.from = from;
         this.to = to;
+        this.permits = new Semaphore(maxConcurrentSends);
     }
 
     public void send(FormOrigin origin, PublicFormRequest request) {
@@ -45,6 +50,8 @@ public class PublicFormMailService {
                 || !validMailbox(from) || !validMailbox(to)) {
             throw unavailable();
         }
+        // Shared by contact and feedback, local to this instance; never queue/wait for capacity.
+        if (!permits.tryAcquire()) throw unavailable();
         try {
             var message = sender.createMimeMessage();
             var helper = new MimeMessageHelper(message, StandardCharsets.UTF_8.name());
@@ -59,6 +66,8 @@ public class PublicFormMailService {
         } catch (MailException | MessagingException exception) {
             // Never propagate or log provider errors: they can include secrets and message content.
             throw unavailable();
+        } finally {
+            permits.release();
         }
     }
 

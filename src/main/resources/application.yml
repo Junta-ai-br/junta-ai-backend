@@ -132,6 +132,7 @@ app:
     window-seconds: ${AUTH_RATE_LIMIT_WINDOW_SECONDS:600}
     max-keys: ${AUTH_RATE_LIMIT_MAX_KEYS:20000}
   public-forms:
+    max-concurrent-sends: ${PUBLIC_FORMS_MAX_CONCURRENT_SENDS:2}
     rate-limit:
       per-client: ${PUBLIC_FORMS_RATE_LIMIT_PER_CLIENT:5}
       global: ${PUBLIC_FORMS_RATE_LIMIT_GLOBAL:100}

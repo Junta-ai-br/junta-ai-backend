@@ -106,13 +106,13 @@ class PublicFormControllerTest {
 
     static Stream<Object[]> invalidFields() {
         return Stream.of(new Object[]{"name", null}, new Object[]{"name", "   "},
-                new Object[]{"name", "x".repeat(121)}, new Object[]{"name", "\nAna"},
+                new Object[]{"name", "x".repeat(101)}, new Object[]{"name", "\nAna"},
                 new Object[]{"email", "bad"}, new Object[]{"email", "ana@example.com\r\nBcc: x@y.com"},
                 new Object[]{"email", "x".repeat(255) + "@example.com"}, new Object[]{"email", null},
                 new Object[]{"subject", "experiencia"}, new Object[]{"subject", "unknown"},
                 new Object[]{"subject", "\nfaq"}, new Object[]{"subject", "x".repeat(33)},
                 new Object[]{"subject", null}, new Object[]{"message", " \n "},
-                new Object[]{"message", "x".repeat(10001)}, new Object[]{"message", null});
+                new Object[]{"message", "x".repeat(3001)}, new Object[]{"message", null});
     }
 
     @ParameterizedTest @MethodSource("invalidFields")
@@ -205,10 +205,50 @@ class PublicFormControllerTest {
     }
 
     @Test void rejectsOversizedOther() throws Exception {
-        var input = input("outro"); input.put("subjectOther", "x".repeat(161));
+        var input = input("outro"); input.put("subjectOther", "x".repeat(121));
         mvc.perform(post("/contact").with(r -> { r.setRemoteAddr(client); return r; })
                         .contentType("application/json").content(mapper.writeValueAsString(input)))
                 .andExpect(status().isBadRequest());
+        verify(sender, never()).send(any(MimeMessage.class));
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"/contact", "/feedback"})
+    void acceptsExactUtf16BoundariesAndTreatsHtmlAsPlainText(String path) throws Exception {
+        var input = input("outro");
+        String messageText = "<script>alert(1)</script>\nÁ";
+        messageText += "😀".repeat((3000 - messageText.length()) / 2);
+        messageText += "!".repeat(3000 - messageText.length());
+        input.put("name", "Á".repeat(100));
+        input.put("subjectOther", "😀".repeat(60));
+        input.put("message", messageText);
+        mvc.perform(post(path).with(r -> { r.setRemoteAddr(client); return r; })
+                        .contentType("application/json").content(mapper.writeValueAsString(input)))
+                .andExpect(status().isOk());
+        message.saveChanges();
+        assertThat(message.getContentType()).containsIgnoringCase("text/plain");
+        assertThat(message.getContent().toString()).contains(messageText);
+    }
+
+    @Test void exhaustedQuotaDoesNotReadUnknownLengthBody() throws Exception {
+        for (int i = 0; i < 2; i++) {
+            mvc.perform(post("/contact").with(r -> { r.setRemoteAddr(client); return r; })
+                            .contentType("application/json").content("{}"))
+                    .andExpect(status().isBadRequest());
+        }
+        mvc.perform(servletContext -> {
+            var r = new org.springframework.mock.web.MockHttpServletRequest(servletContext) {
+                @Override public long getContentLengthLong() { return -1; }
+                @Override public jakarta.servlet.ServletInputStream getInputStream() {
+                    throw new AssertionError("Rejected requests must not consume the body");
+                }
+            };
+            r.setMethod("POST");
+            r.setRequestURI("/feedback");
+            r.setRemoteAddr(client);
+            r.setContentType("application/json");
+            return r;
+        }).andExpect(status().isTooManyRequests());
         verify(sender, never()).send(any(MimeMessage.class));
     }
 }

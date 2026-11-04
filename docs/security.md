@@ -87,12 +87,14 @@
 - ✅ **Carga**: pool Hikari configurável (padrão 10, espera máx. 5 s), chat
   sem transação aberta durante a chamada à IA (não prende conexão),
   paginação com teto de 100, ordenação fixa, consultas do chat limitadas,
-  corpo de requisição até 64 KB (413), shutdown graceful.
+  checagem global de Content-Length e leitura efetiva de até 64 KiB em
+  POST /contact e /feedback (413), shutdown graceful.
 - ✅ **Planejador isolado por usuário**: toda consulta de
   `planner_simulations` filtra por `user_id` do JWT; de outra pessoa = 404.
 - ⬜ **Ainda não coberto** (próximos passos): rate limit global entre
   réplicas (Redis ou gateway), envio de e-mail assíncrono (hoje o SMTP
-  roda na requisição, com timeout de 5 s), revogação imediata de access
+  roda na requisição, com timeout de 5 s e concorrência pública limitada
+  por semáforo local de 2 permissões, configurável), revogação imediata de access
   token, MFA, WAF/proteção DDoS no Azure.
 
 ## Por que o refresh token não é um JWT

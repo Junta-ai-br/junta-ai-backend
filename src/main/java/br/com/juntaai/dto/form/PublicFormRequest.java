@@ -6,12 +6,12 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public record PublicFormRequest(
-        @NotBlank @Size(max = 120) @Pattern(regexp = "[^\\p{Cc}\\u2028\\u2029]*") String name,
+        @NotBlank @Size(max = 100) @Pattern(regexp = "[^\\p{Cc}\\u2028\\u2029]*") String name,
         @NotBlank @Size(max = 254) @Email
         @Pattern(regexp = "[^\\p{Cc}\\u2028\\u2029]*") String email,
         @NotBlank @Size(max = 32) @Pattern(regexp = "[^\\p{Cc}\\u2028\\u2029]*") String subject,
-        @Size(max = 160) @Pattern(regexp = "[^\\p{Cc}\\u2028\\u2029]*") String subjectOther,
-        @NotBlank @Size(max = 10000) String message
+        @Size(max = 120) @Pattern(regexp = "[^\\p{Cc}\\u2028\\u2029]*") String subjectOther,
+        @NotBlank @Size(max = 3000) String message
 ) {
     public PublicFormRequest {
         name = normalizeHeader(name);

@@ -256,7 +256,7 @@ sem substituição explícita ou por erro de composição.
 I3 permanece parcial: consentimento autenticado e retomada IA de recibo expirado
 continuam pendentes. A identidade durável de entrada é adicionada pela I3.1 abaixo. A proteção
 execution_confirmation_stale permanece. Recorrência/correção/categoria seguem
-indisponíveis. Evidências, limites e decisões em [i3-audit.md](i3-audit.md).
+indisponíveis. Evidências e decisões na documentação interna da equipe.
 
 ### I3.1 — identidade durável do envio de mensagens
 
@@ -342,15 +342,3 @@ A identidade não deduplica intenções com chaves distintas, não autentica S2S
 não implementa consentimento, recuperação IA de recibo expirado, MCP ou frontend.
 Recorrência/correção/categoria continuam indisponíveis. I3 permanece parcial.
 
-## Limites e respostas de proteção (revisão de segurança/escala)
-
-| Situação | Resposta |
-|---|---|
-| Muitas requisições de um IP em `/auth/*` | `429` + `Retry-After` |
-| Código de e-mail errado 5 vezes / pedidos de código acima do teto | `429` |
-| Mais de 20 mensagens/min de um usuário no chat | `429` + `Retry-After` |
-| Corpo da requisição acima de 64 KB (`MAX_REQUEST_BYTES`) | `413` |
-| `POST /auth/access-code/request` com e-mail sem conta | `202` igual ao de e-mail com conta (nada é enviado) |
-| Apagar categoria que tem transações | `409` |
-| Mais de 200 simulações salvas no Planejador | `409` |
-| Listas (transações, conversas, mensagens) | tamanho de página máx. 100 (mensagens: 200 mais recentes) |

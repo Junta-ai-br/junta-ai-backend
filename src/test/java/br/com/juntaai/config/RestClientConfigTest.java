@@ -37,4 +37,52 @@ class RestClientConfigTest {
             server.stop(0);
         }
     }
+
+        @Test
+    void aiClientSendsBearerTokenWhenConfigured() throws Exception {
+        AtomicReference<String> authorization = new AtomicReference<>();
+
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/echo", exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            exchange.getRequestBody().readAllBytes();
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            RestClient client = new RestClientConfig().aiServiceRestClient(baseUrl, 2000, 2000, "token-de-teste");
+
+            client.post().uri("/echo").body("{\"a\":1}").retrieve().toBodilessEntity();
+
+            assertThat(authorization.get()).isEqualTo("Bearer token-de-teste");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void aiClientDoesNotSendAuthorizationWhenTokenIsBlank() throws Exception {
+        AtomicReference<String> authorization = new AtomicReference<>();
+
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/echo", exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            exchange.getRequestBody().readAllBytes();
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+            RestClient client = new RestClientConfig().aiServiceRestClient(baseUrl, 2000, 2000, "");
+
+            client.post().uri("/echo").body("{\"a\":1}").retrieve().toBodilessEntity();
+
+            assertThat(authorization.get()).isNull();
+        } finally {
+            server.stop(0);
+        }
+    }
 }

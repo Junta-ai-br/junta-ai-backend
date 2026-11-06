@@ -20,8 +20,10 @@ public class AccountDeletionService {
 
     @Transactional
     public void deleteAccount(UUID userId) {
+        // FOR UPDATE: mesmo bloqueio de linha do usuário usado pelas escritas financeiras,
+        // para que uma exclusão e uma reserva simultâneas não se atropelem.
         List<String> emails = jdbc.queryForList(
-                "SELECT email FROM users WHERE id = ?", String.class, userId);
+                "SELECT email FROM users WHERE id = ? FOR UPDATE", String.class, userId);
         if (emails.isEmpty()) {
             return; // já excluída: operação idempotente
         }

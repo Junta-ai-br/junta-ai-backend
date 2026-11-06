@@ -32,9 +32,14 @@ class DashboardServiceTest {
     private final LocalDate from = LocalDate.now().minusMonths(1);
     private final LocalDate to = LocalDate.now();
 
+    private FinancialPositionService positions() {
+        var positions = org.mockito.Mockito.mock(FinancialPositionService.class);
+        org.mockito.Mockito.lenient().when(positions.current(org.mockito.ArgumentMatchers.any())).thenReturn(new FinancialPositionService.Position(BigDecimal.ZERO, BigDecimal.ZERO, false));
+        return positions;
+    }
     @BeforeEach
     void setUp() {
-        dashboardService = new DashboardService(transactionRepository, goalRepository);
+        dashboardService = new DashboardService(transactionRepository, goalRepository, positions());
     }
 
     @Test

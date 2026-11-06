@@ -52,7 +52,7 @@ class GoalWithdrawalPostgresTest extends AbstractIntegrationTest {
         assertThat(jdbc.queryForObject("select count(*) from transactions where user_id=?",Integer.class,user)).isZero();
         assertThat(jdbc.queryForObject("select count(*) from action_executions where user_id=?",Integer.class,user)).isEqualTo(1);
     }
-    @Test void excessMissingAndHomonymousGoalsAreRejectedWithoutEffects(){
+    @Test void excessAndForeignGoalsAreRejectedWhileOwnedIdentityDisambiguates(){
         var excess=turn("viagem","100.01");
         assertThat(execute(excess).confirmation().reason()).isEqualTo("goal_insufficient_progress");
         assertThat(execute(excess).confirmation().status()).isEqualTo(ExecutionStatus.REJECTED);
@@ -61,8 +61,8 @@ class GoalWithdrawalPostgresTest extends AbstractIntegrationTest {
         jdbc.update("insert into goals(id,user_id,name,target_amount,current_amount) values(?,?,'foreign',100,100)",UUID.randomUUID(),other);
         assertThat(execute(turn("foreign","1")).confirmation().reason()).isEqualTo("goal_withdrawal_confirmation_required");
         jdbc.update("insert into goals(id,user_id,name,target_amount,current_amount) values(?,?,'viagem',200,100)",UUID.randomUUID(),user);
-        assertThat(execute(turn("viagem","1")).confirmation().reason()).isEqualTo("goal_withdrawal_confirmation_required");
-        assertThat(current()).isEqualByComparingTo("100");
+        assertThat(execute(turn("viagem","1")).confirmation().status()).isEqualTo(ExecutionStatus.SUCCESSFUL);
+        assertThat(current()).isEqualByComparingTo("99");
     }
     @Test void withdrawalReopensCompletedGoal(){
         jdbc.update("update goals set target_amount=100,status='COMPLETED' where id=?",goal);

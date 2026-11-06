@@ -32,7 +32,7 @@ class CategoryCatalogExecutionGuardTest {
     }
 
     private void rejected(String reason) {
-        Object effect = ReflectionTestUtils.invokeMethod(service, "executeEffect", user, action());
+        Object effect = ReflectionTestUtils.invokeMethod(service, "executeEffect", user, action(), null);
         ExecutionConfirmation confirmation = ReflectionTestUtils.invokeMethod(effect, "confirmation");
         assertThat(confirmation.status()).isEqualTo(ExecutionStatus.REJECTED);
         assertThat(confirmation.reason()).isEqualTo(reason);
@@ -61,8 +61,9 @@ class CategoryCatalogExecutionGuardTest {
 
     @Test void queryFailureDoesNotBecomePermissionToExecute() {
         when(categories.findByUserIdOrderByNameAsc(user)).thenThrow(new IllegalStateException("synthetic query failure"));
-        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(service, "executeEffect", user, action()))
-                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> ReflectionTestUtils.invokeMethod(service, "executeEffect", user, action(), null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("synthetic query failure");
         verifyNoInteractions(transactions, goals);
     }
 }

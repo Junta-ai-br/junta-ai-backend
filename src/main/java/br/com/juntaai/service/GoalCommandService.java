@@ -43,6 +43,7 @@ public class GoalCommandService {
     }
 
     private GoalResponse command(UUID user, UUID key, Input input, Supplier<GoalResponse> effect) {
+        jdbc.queryForObject("SELECT id FROM users WHERE id=? FOR UPDATE", UUID.class, user);
         String request = json(input);
         jdbc.update("INSERT INTO goal_command_receipts(user_id,command_id,request_json) VALUES (?,?,?) ON CONFLICT DO NOTHING",
                 user, key, request);

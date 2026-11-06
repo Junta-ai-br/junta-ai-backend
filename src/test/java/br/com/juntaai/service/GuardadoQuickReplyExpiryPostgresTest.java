@@ -32,16 +32,23 @@ class GuardadoQuickReplyExpiryPostgresTest extends AbstractIntegrationTest {
     @BeforeEach void seed() throws Exception {
         assertThat(jdbc.queryForObject("select current_database()", String.class)).startsWith("junta_i3_disposable_");
         user = UUID.randomUUID(); conversation = UUID.randomUUID();
-        var goal = UUID.randomUUID();
+        var goal = UUID.randomUUID(); var prompt = UUID.randomUUID();
         payload = new ParsedFinancialData(new BigDecimal("10.00"), "synthetic", null, null, null,
                 "Viagem", Operation.GOAL_CONTRIBUTION, TemporalStatus.REALIZED, null);
         selection = new QuickReplySelection("source_registered", UUID.randomUUID().toString(), conversation.toString());
         pending = mapper.writeValueAsString(new PendingOperation(PendingState.CLARIFICATION,
                 Operation.GOAL_CONTRIBUTION, payload, List.of("funding_source"), goal.toString(),
-                selection.pending_id(), conversation.toString(), null, null));
+                selection.pending_id(), conversation.toString(), null, prompt.toString()));
         jdbc.update("insert into users(id,name,email) values(?,?,?)", user, "Synthetic", user + "@test.invalid");
         jdbc.update("insert into goals(id,user_id,name,target_amount,current_amount) values(?,?,'Viagem',100,0)",goal,user);
         jdbc.update("insert into conversations(id,user_id,pending_state) values(?,?,?)", conversation,user,pending);
+        jdbc.update("insert into messages(id,conversation_id,role,content) values(?,?,'ASSISTANT','Synthetic prompt')",prompt,conversation);
+    }
+    @Test void expiredPromptRejectsItsChoiceWithoutStartingAnotherOperation() {
+        jdbc.update("update messages set created_at=clock_timestamp()-interval '11 minutes' where conversation_id=?",conversation);
+        assertThatThrownBy(()->admit(UUID.randomUUID())).isInstanceOf(MessageEntryException.class)
+                .extracting("code").isEqualTo("quick_reply_stale");
+        assertThat(jdbc.queryForObject("select count(*) from conversation_message_entries where conversation_id=?",Integer.class,conversation)).isZero();
     }
     MessageEntryStore.Admission admit(UUID key) {
         return entries.admit(user,conversation,key,selection.label(),selection);

@@ -15,6 +15,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class GoalIntegrationTest extends AbstractIntegrationTest {
+    @org.springframework.beans.factory.annotation.Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private void fund(UUID goal, String amount) {
+        UUID owner=jdbc.queryForObject("select user_id from goals where id=?",UUID.class,goal), category=UUID.randomUUID();
+        jdbc.update("insert into categories(id,user_id,name,type) values(?,?,'Synthetic funding','INCOME')",category,owner);
+        jdbc.update("insert into transactions(id,user_id,category_id,type,description,amount,transaction_date) values(?,?,?,'INCOME','Explicit test funding',?,date '1990-01-01')",UUID.randomUUID(),owner,category,new BigDecimal(amount));
+    }
+
     @Test
     void authenticatedCreationDeletionIsolationAndRetries() throws Exception {
         String a = registerAndGetAccessToken("User A", uniqueEmail("goal-a"), "synthetic");
@@ -35,6 +42,17 @@ class GoalIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post("/goals").header("Authorization", "Bearer " + a).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isBadRequest());
     }
 
+    @Test void unfundedReservationCannotChangeTheGoal() throws Exception {
+        String token=registerAndGetAccessToken("Synthetic",uniqueEmail("unfunded"),"synthetic");
+        UUID id=createGoal(token,new BigDecimal("100"));
+        mockMvc.perform(patch("/goals/"+id+"/progress").header("Authorization","Bearer "+token)
+                .header("Idempotency-Key",UUID.randomUUID()).contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(new GoalProgressRequest(BigDecimal.ONE))))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/goals").header("Authorization","Bearer "+token)).andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].currentAmount").value(0));
+    }
+
     private UUID createGoal(String token, BigDecimal target) throws Exception {
         String response = mockMvc.perform(post("/goals")
                         .header("Idempotency-Key", UUID.randomUUID().toString())
@@ -51,6 +69,7 @@ class GoalIntegrationTest extends AbstractIntegrationTest {
     void deveAcumularProgressoEConcluirMetaAoAtingirValorAlvo() throws Exception {
         String token = registerAndGetAccessToken("Gui", uniqueEmail("gui"), "senhaForte123");
         UUID goalId = createGoal(token, new BigDecimal("1000.00"));
+        fund(goalId,"1000.00");
 
         mockMvc.perform(patch("/goals/" + goalId + "/progress")
                         .header("Idempotency-Key", UUID.randomUUID().toString())
@@ -74,6 +93,7 @@ class GoalIntegrationTest extends AbstractIntegrationTest {
     void naoDeveAceitarNovoAporteAposMetaConcluida() throws Exception {
         String token = registerAndGetAccessToken("Lia", uniqueEmail("lia"), "senhaForte123");
         UUID goalId = createGoal(token, new BigDecimal("100.00"));
+        fund(goalId,"100.00");
 
         mockMvc.perform(patch("/goals/" + goalId + "/progress")
                         .header("Idempotency-Key", UUID.randomUUID().toString())

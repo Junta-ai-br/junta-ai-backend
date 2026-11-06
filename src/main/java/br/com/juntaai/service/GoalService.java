@@ -24,6 +24,7 @@ public class GoalService {
 
     private final GoalRepository goalRepository;
     private final UserRepository userRepository;
+    private final FinancialPositionService positions;
 
     @Transactional
     public GoalResponse create(UUID userId, GoalRequest request) {
@@ -74,6 +75,8 @@ public class GoalService {
             throw new BusinessRuleException("Esta meta não está mais em andamento.");
         }
 
+        String problem = reservationProblem(userId, amount);
+        if (problem != null) throw new BusinessRuleException(problem);
         BigDecimal next = goal.getCurrentAmount().add(amount);
         if (next.compareTo(new BigDecimal("99999999999999999.99")) > 0) {
             throw new BusinessRuleException("O valor acumulado excede o limite permitido.");
@@ -113,7 +116,14 @@ public class GoalService {
         return toResponse(goal);
     }
 
+    public String reservationProblem(UUID userId, BigDecimal amount) {
+        var position = positions.current(userId);
+        if (position.reservationInconsistent()) return "goal_reserve_inconsistent";
+        return amount.compareTo(position.availableBalance()) > 0 ? "goal_insufficient_available" : null;
+    }
+
     private Goal findOwnedOrThrow(UUID userId, UUID goalId) {
+        userRepository.findLockedById(userId);
         return goalRepository.findLockedByIdAndUserId(goalId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Meta"));
     }

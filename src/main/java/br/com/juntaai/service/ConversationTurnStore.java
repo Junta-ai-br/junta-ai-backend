@@ -124,7 +124,10 @@ public class ConversationTurnStore {
                 .orElseThrow(() -> new ResourceNotFoundException("Conversa"));
     }
     private MessageResponse response(Message m) {
-        return ConversationOptions.response(m, objectMapper);
+        return ConversationOptions.response(m, objectMapper, id -> {
+            var entry = entries.byMessage(id);
+            return entry == null ? null : entry.pendingBefore();
+        });
     }
     public record Turn(UUID messageId, MessageResponse userMessage, String pendingBefore,
                        PendingOperation pending, ConversationContext context, FinancialStateSnapshot snapshot) {}
@@ -147,6 +150,9 @@ public class ConversationTurnStore {
         currentState.put("category_catalog", categoryCatalog);
         currentState.put("balance", dashboard.balance());
         currentState.put("saved", dashboard.saved());
+        currentState.put("availableBalance", dashboard.availableBalance());
+        currentState.put("totalTracked", dashboard.totalTracked());
+        currentState.put("reservationInconsistent", dashboard.reservationInconsistent());
         currentState.put("totalIncome", dashboard.totalIncome());
         currentState.put("totalExpense", dashboard.totalExpense());
         currentState.put("periodFrom", from.toString());

@@ -34,6 +34,9 @@ class GoalWritePostgresTest extends AbstractIntegrationTest {
         }
         user = UUID.randomUUID();
         jdbc.update("insert into users(id,name,email) values(?,?,?)", user, "Synthetic", user + "@test.invalid");
+        UUID funding=UUID.randomUUID();
+        jdbc.update("insert into categories(id,user_id,name,type) values(?,?,'Synthetic funding','INCOME')",funding,user);
+        jdbc.update("insert into transactions(id,user_id,category_id,type,description,amount,transaction_date) values(?,?,?,'INCOME','Explicit test funding',2000,date '1990-01-01')",UUID.randomUUID(),user,funding);
         goal = commands.create(user, UUID.randomUUID(), new GoalRequest("Viagem", new BigDecimal("1000.00"), null)).id();
     }
     BigDecimal accumulated() { return jdbc.queryForObject("select current_amount from goals where id=?", BigDecimal.class, goal); }
@@ -91,7 +94,7 @@ class GoalWritePostgresTest extends AbstractIntegrationTest {
             assertThat(receipt.confirmation().status()).isEqualTo(ExecutionStatus.SUCCESSFUL);
             assertThat(actions.execute(user,conversation,message,"synthetic",action,pending).confirmation()).isEqualTo(receipt.confirmation());
             assertThat(accumulated()).isEqualByComparingTo("35.03");
-            assertThat(jdbc.queryForObject("select count(*) from transactions where user_id=?",Integer.class,user)).isZero();
+            assertThat(jdbc.queryForObject("select count(*) from transactions where user_id=?",Integer.class,user)).isEqualTo(1);
         } finally { pool.shutdownNow(); }
     }
 

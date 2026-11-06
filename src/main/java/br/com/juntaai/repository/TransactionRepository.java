@@ -15,6 +15,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface TransactionRepository extends JpaRepository<Transaction, UUID> {
+    @Query("select coalesce(sum(case when t.type = br.com.juntaai.entity.TransactionType.INCOME then t.amount else -t.amount end), 0) from Transaction t where t.user.id = :userId and t.transactionDate <= :through")
+    BigDecimal accumulatedBalance(@Param("userId") UUID userId, @Param("through") LocalDate through);
+
 
     Optional<Transaction> findByIdAndUserId(UUID id, UUID userId);
 

@@ -22,7 +22,8 @@ public class RestClientConfig {
     public RestClient aiServiceRestClient(
             @Value("${ai.service.base-url}") String baseUrl,
             @Value("${ai.service.connect-timeout-ms}") int connectTimeoutMs,
-            @Value("${ai.service.read-timeout-ms}") int readTimeoutMs) {
+            @Value("${ai.service.read-timeout-ms}") int readTimeoutMs,
+            @Value("${ai.service.token:}") String serviceToken) {
 
         // HTTP/1.1 explícito: em http:// o JDK tenta "upgrade" para HTTP/2 (h2c)
         // e o uvicorn da IA perde o corpo da requisição (422 invalid_request).
@@ -34,10 +35,13 @@ public class RestClientConfig {
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(Duration.ofMillis(readTimeoutMs));
 
-        return RestClient.builder()
-                .baseUrl(baseUrl)
-                .requestFactory(requestFactory)
-                .build();
+                RestClient.Builder builder = RestClient.builder()
+                        .baseUrl(baseUrl)
+                        .requestFactory(requestFactory);
+        if (!serviceToken.isBlank()) {
+            builder.defaultHeader("Authorization", "Bearer " + serviceToken);
+        }
+        return builder.build();
     }
 
     /**

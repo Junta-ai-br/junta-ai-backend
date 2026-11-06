@@ -45,7 +45,7 @@ class AiClientTransportTest {
         server.start();
         try {
             var rest = new RestClientConfig().aiServiceRestClient(
-                    "http://127.0.0.1:" + server.getAddress().getPort(), 3000, 5000);
+                     "http://127.0.0.1:" + server.getAddress().getPort(), 3000, 5000, "");
             var category = new CategoryCatalogEntry(UUID.randomUUID(), "Synthetic transport category", CategoryType.EXPENSE);
             var snapshot = new FinancialStateSnapshot(null, Map.of("category_catalog", List.of(category)),
                     Map.of(), List.of(), List.of(), Map.of(), Map.of());

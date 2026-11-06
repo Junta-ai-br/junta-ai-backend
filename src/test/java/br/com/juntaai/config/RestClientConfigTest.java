@@ -27,7 +27,7 @@ class RestClientConfigTest {
         server.start();
         try {
             String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
-            RestClient client = new RestClientConfig().aiServiceRestClient(baseUrl, 2000, 2000);
+            RestClient client = new RestClientConfig().aiServiceRestClient(baseUrl, 2000, 2000, "");
 
             client.post().uri("/echo").body("{\"a\":1}").retrieve().toBodilessEntity();
 

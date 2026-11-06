@@ -65,7 +65,7 @@ public abstract class AbstractIntegrationTest {
         String responseBody = mockMvc.perform(post("/auth/register/verify")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new RegisterVerifyRequest(name, email, whatsapp, code, null, null, null))))
+                                new RegisterVerifyRequest(name, email, whatsapp, code, null, null, null, true))))
                 .andExpect(status().isOk())
                 .andReturn()
                 .getResponse()

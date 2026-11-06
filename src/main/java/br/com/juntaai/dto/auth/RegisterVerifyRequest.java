@@ -4,6 +4,8 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.NotNull;
 
 /**
  * POST /auth/register/verify — segundo passo: confirma o código
@@ -34,7 +36,11 @@ public record RegisterVerifyRequest(
         String question2,
 
         @Size(max = 1000, message = "A resposta deve ter no máximo 1000 caracteres.")
-        String question3
+        String question3,
+                
+        @NotNull(message = "É necessário confirmar que você tem 18 anos ou mais.")
+        @AssertTrue(message = "É necessário confirmar que você tem 18 anos ou mais.")
+        Boolean adultConfirmed
 ) {
     public RegisterVerifyRequest {
         email = EmailNormalizer.normalize(email);

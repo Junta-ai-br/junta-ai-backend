@@ -73,7 +73,7 @@ class AuthServiceTest {
     @Test
     void deveCriarContaSoDepoisDeConfirmarCodigoEEmitirTokens() {
         RegisterVerifyRequest request = new RegisterVerifyRequest(
-                "Ana", "ana@email.com", "11999998888", "123456", null, null, null);
+                "Ana", "ana@email.com", "11999998888", "123456", null, null, null, true);
 
         when(userRepository.existsByEmail("ana@email.com")).thenReturn(false);
         when(userRepository.save(any(User.class))).thenAnswer(inv -> {
@@ -94,7 +94,7 @@ class AuthServiceTest {
     void deveSalvarRespostasDeOnboardingQuandoInformadas() {
         RegisterVerifyRequest request = new RegisterVerifyRequest(
                 "Bia", "bia@email.com", "11988887777", "123456",
-                "Controlar melhor meus gastos", "Anoto tudo", "Economizar");
+                "Controlar melhor meus gastos", "Anoto tudo", "Economizar", true);
 
         when(userRepository.existsByEmail("bia@email.com")).thenReturn(false);
         when(userRepository.save(any(User.class))).thenAnswer(inv -> {
@@ -114,7 +114,7 @@ class AuthServiceTest {
     @Test
     void naoDeveCriarContaSeEmailJaFoiCadastradoEntreOEnvioEAConfirmacao() {
         RegisterVerifyRequest request = new RegisterVerifyRequest(
-                "Ana", "ana@email.com", "11999998888", "123456", null, null, null);
+                "Ana", "ana@email.com", "11999998888", "123456", null, null, null, true);
 
         when(userRepository.existsByEmail("ana@email.com")).thenReturn(true);
 

@@ -60,6 +60,11 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
     private ActionExecutionService.Receipt execute(ActionRequest action) {
         return executions.execute(user, conversation, message, "backend-origin", action, null);
     }
+    private void fundReservation() {
+        UUID category=UUID.randomUUID();
+        jdbc.update("insert into categories(id,user_id,name,type) values(?,?,'Synthetic funding','INCOME')",category,user);
+        jdbc.update("insert into transactions(id,user_id,category_id,type,description,amount,transaction_date) values(?,?,?,'INCOME','Explicit test funding',2000,date '1990-01-01')",UUID.randomUUID(),user,category);
+    }
     private int effects() { return jdbc.queryForObject("select count(*) from transactions where user_id=?", Integer.class, user); }
     private int records() { return jdbc.queryForObject("select count(*) from action_executions where user_id=?", Integer.class, user); }
     private boolean pending() { return jdbc.queryForObject("select composition_pending from action_executions where user_id=?", Boolean.class, user); }
@@ -109,6 +114,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
     }
 
     @Test void goalContributionAndReceiptAreAtomicAndIdempotent() throws Exception {
+        fundReservation();
         UUID goal = UUID.randomUUID();
         jdbc.update("insert into goals(id,user_id,name,target_amount) values(?,?,'Target',100)", goal, user);
         var action = contribution(UUID.randomUUID().toString());
@@ -117,10 +123,10 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
         execute(action);
         assertThat(jdbc.queryForObject("select current_amount from goals where id=?", BigDecimal.class, goal))
                 .isEqualByComparingTo("10.00");
-        assertThat(records()).isEqualTo(1); assertThat(effects()).isZero();
+        assertThat(records()).isEqualTo(1); assertThat(effects()).isEqualTo(1);
     }
 
-    @Test void foreignAndAmbiguousGoalNamesCannotSelectUnauthorizedTarget() throws Exception {
+    @Test void foreignGoalIsRejectedAndOwnedIdentityDisambiguates() throws Exception {
         UUID other = UUID.randomUUID(), otherGoal = UUID.randomUUID();
         jdbc.update("insert into users(id,name,email) values(?,?,?)", other, "Other", other + "@test.invalid");
         jdbc.update("insert into goals(id,user_id,name,target_amount) values(?,?,'Target',100)", otherGoal, other);
@@ -132,14 +138,15 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
         when(ai.process(any())).thenAnswer(inv -> response(inv.getArgument(0), "execution_confirmation_not_matching", null));
         conversations.sendMessage(user, conversation, new ChatMessageRequest("retomar"), UUID.randomUUID());
         assertThat(pending()).isFalse();
+        fundReservation();
         UUID firstGoal = UUID.randomUUID();
         jdbc.update("insert into goals(id,user_id,name,target_amount) values(?,?,'Target',100)", firstGoal, user);
         jdbc.update("insert into goals(id,user_id,name,target_amount) values(?,?,'Target',100)", UUID.randomUUID(), user);
         var ambiguousAction = contribution(UUID.randomUUID().toString());
         String ambiguousConsent = contributionProposal(ambiguousAction, firstGoal);
-        assertThat(executions.execute(user, conversation, message, "backend-origin", ambiguousAction, ambiguousConsent).confirmation().reason())
-                .isEqualTo("goal_contribution_confirmation_required");
-        assertThat(jdbc.queryForObject("select sum(current_amount) from goals where user_id=?", BigDecimal.class, user)).isEqualByComparingTo("0");
+        assertThat(executions.execute(user, conversation, message, "backend-origin", ambiguousAction, ambiguousConsent).confirmation().status())
+                .isEqualTo(ExecutionStatus.SUCCESSFUL);
+        assertThat(jdbc.queryForObject("select sum(current_amount) from goals where user_id=?", BigDecimal.class, user)).isEqualByComparingTo("10");
     }
 
     @Test void concurrentSameActionHasOneFinancialEffect() throws Exception {

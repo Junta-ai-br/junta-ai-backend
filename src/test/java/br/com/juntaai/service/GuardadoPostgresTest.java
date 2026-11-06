@@ -32,6 +32,10 @@ class GuardadoPostgresTest extends AbstractIntegrationTest {
     UUID newUser() {
         UUID id = UUID.randomUUID();
         jdbc.update("insert into users(id,name,email) values(?,?,?)", id, "Synthetic", id + "@test.invalid");
+        // Explicit historical funding keeps monthly totals unchanged while making these reservations valid.
+        UUID funding=UUID.randomUUID();
+        jdbc.update("insert into categories(id,user_id,name,type) values(?,?,'Synthetic funding','INCOME')",funding,id);
+        for(int i=0;i<2;i++) jdbc.update("insert into transactions(id,user_id,category_id,type,description,amount,transaction_date) values(?,?,?,'INCOME','Explicit test funding',999999999999999.99,date '1990-01-01')",UUID.randomUUID(),id,funding);
         return id;
     }
     UUID goal(UUID owner, String target) {

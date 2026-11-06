@@ -15,6 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -129,5 +130,11 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
                         .content("{\"name\":\"Ana\",\"email\":\"" + email
                                 + "\",\"whatsapp\":\"11999998888\",\"code\":\"123456\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void swaggerNaoDeveEstarPublicoPorPadrao() throws Exception {
+        mockMvc.perform(get("/swagger-ui.html")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api-docs")).andExpect(status().isUnauthorized());
     }
 }

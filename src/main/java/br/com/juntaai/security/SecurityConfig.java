@@ -34,13 +34,15 @@ public class SecurityConfig {
 
     private static final String[] PUBLIC_ROUTES = {
             "/auth/**",
-            "/actuator/health",
+            "/actuator/health"
+    };
+
+    private static final String[] SWAGGER_ROUTES = {
             "/swagger-ui.html",
             "/swagger-ui/**",
             "/api-docs/**",
             "/v3/api-docs/**"
     };
-
 
     /** Limite por IP em /auth/** (ver AuthRateLimitFilter). Valores configuráveis por variável de ambiente. */
     @Bean
@@ -62,8 +64,10 @@ public class SecurityConfig {
     }
 
     @Bean
-            public SecurityFilterChain filterChain(HttpSecurity http, AuthRateLimitFilter authRateLimitFilter,
-                                           RequestSizeLimitFilter requestSizeLimitFilter) throws Exception {
+    public SecurityFilterChain filterChain(HttpSecurity http, AuthRateLimitFilter authRateLimitFilter,
+                                           RequestSizeLimitFilter requestSizeLimitFilter,
+                                           @Value("${springdoc.swagger-ui.enabled:false}") boolean swaggerEnabled)
+            throws Exception {
         return http
                 .csrf(csrf -> csrf.disable()) // API stateless com Bearer token, sem cookies de sessão
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
@@ -72,12 +76,16 @@ public class SecurityConfig {
                 // "anônima" e devolve 403; queremos 401 (não autenticado), que
                 // é semanticamente correto quando não há credencial nenhuma.
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(unauthorizedEntryPoint()))
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.POST, "/contact", "/feedback").permitAll()
-                        .requestMatchers(PUBLIC_ROUTES).permitAll()
-                        .requestMatchers("/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/auth/**").permitAll() //Libera login do Google
-                        .anyRequest().authenticated())
+                .authorizeHttpRequests(auth -> {
+                    auth.requestMatchers(HttpMethod.POST, "/contact", "/feedback").permitAll();
+                    auth.requestMatchers(PUBLIC_ROUTES).permitAll();
+                    if (swaggerEnabled) {
+                        auth.requestMatchers(SWAGGER_ROUTES).permitAll();
+                    }
+                    auth.requestMatchers("/admin/**").hasRole("ADMIN");
+                    auth.requestMatchers("/auth/**").permitAll(); // Libera login do Google
+                    auth.anyRequest().authenticated();
+                })
                 .addFilterBefore(requestSizeLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(authRateLimitFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)

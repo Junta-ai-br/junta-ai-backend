@@ -96,6 +96,7 @@ jwt:
 
 ai:
   service:
+    token: ${AI_SERVICE_TOKEN:}
     base-url: ${AI_SERVICE_BASE_URL:http://localhost:8000}
     chat-path: ${AI_SERVICE_CHAT_PATH:/v1/conversations/process}
     connect-timeout-ms: ${AI_CONNECT_TIMEOUT_MS:3000}
@@ -143,10 +144,12 @@ app:
 
 springdoc:
   swagger-ui:
+    enabled: ${SWAGGER_ENABLED:false}
     path: /swagger-ui.html
     tags-sorter: alpha
     operations-sorter: alpha
   api-docs:
+    enabled: ${SWAGGER_ENABLED:false}
     path: /api-docs
 
 logging:

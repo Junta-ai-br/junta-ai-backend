@@ -34,6 +34,7 @@ public class TransactionService {
 
     @Transactional
     public TransactionResponse create(UUID userId, TransactionRequest request) {
+        userRepository.findLockedById(userId);
         // Garante que a categoria pertence ao mesmo usuário (evita vazamento entre contas).
         Category category = categoryService.findOwnedOrThrow(userId, request.categoryId());
         User user = userRepository.getReferenceById(userId);
@@ -73,6 +74,7 @@ public class TransactionService {
 
     @Transactional
     public TransactionResponse update(UUID userId, UUID transactionId, TransactionRequest request) {
+        userRepository.findLockedById(userId);
         Transaction transaction = transactionRepository.findLockedByIdAndUserId(transactionId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Transação"));
         Category category = categoryService.findOwnedOrThrow(userId, request.categoryId());
@@ -90,6 +92,7 @@ public class TransactionService {
     @Transactional
     public TransactionResponse correct(UUID userId, UUID transactionId, java.time.Instant revision,
             TransactionType type, UUID categoryId, java.math.BigDecimal amount) {
+        userRepository.findLockedById(userId);
         Transaction transaction = transactionRepository.findLockedByIdAndUserId(transactionId, userId).orElse(null);
         if (transaction == null) return null;
         // A request snapshot may already have loaded this row into the persistence context.
@@ -102,6 +105,7 @@ public class TransactionService {
 
     @Transactional
     public void delete(UUID userId, UUID transactionId) {
+        userRepository.findLockedById(userId);
         Transaction transaction = findOwnedOrThrow(userId, transactionId);
         transactionRepository.delete(transaction);
     }

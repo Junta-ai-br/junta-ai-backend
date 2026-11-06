@@ -44,6 +44,7 @@ public class ActionExecutionService {
                            ActionRequest action, String expectedPendingState) {
         Conversation conversation = conversations.findLockedByIdAndUserId(conversationId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Conversa"));
+        entityManager.find(User.class, userId, LockModeType.PESSIMISTIC_WRITE);
         Message message = messages.findById(messageId).orElseThrow(() -> new ResourceNotFoundException("Mensagem"));
         if (!message.getConversation().getId().equals(conversationId) || message.getRole() != MessageRole.USER) {
             throw new BusinessRuleException("action_association_invalid");
@@ -99,7 +100,7 @@ public class ActionExecutionService {
             effect = rejected(action, action.operation() == Operation.GOAL_WITHDRAWAL
                     ? "goal_withdrawal_confirmation_required" : "goal_contribution_confirmation_required");
         } else {
-            effect = executeEffect(userId, action);
+            effect = executeEffect(userId, action, expectedPendingState);
         }
         execution.setStatus(effect.confirmation().status());
         execution.setEffectId(effect.id());
@@ -128,7 +129,7 @@ public class ActionExecutionService {
         return receipt(execution);
     }
 
-    private Effect executeEffect(UUID userId, ActionRequest action) {
+    private Effect executeEffect(UUID userId, ActionRequest action, String pendingJson) {
         ParsedFinancialData p = action.payload();
         if (action.operation() == Operation.CORRECTION) return correct(userId, action);
         if (p.correction_target() != null) return rejected(action, "financial_data_invalid");
@@ -145,7 +146,10 @@ public class ActionExecutionService {
         }
         UUID effectId;
         if (action.operation() == Operation.GOAL_CONTRIBUTION || action.operation() == Operation.GOAL_WITHDRAWAL) {
-            var matches = goals.findLockedByUserIdAndName(userId, p.goal_reference());
+            var pending = readPending(pendingJson);
+            var matches = pending == null || pending.target_reference() == null ? java.util.List.<Goal>of()
+                    : goals.findLockedByIdAndUserId(UUID.fromString(pending.target_reference()), userId).stream()
+                        .filter(g -> sameName(g.getName(), p.goal_reference())).toList();
             if (matches.size() != 1 || p.category() != null) return rejected(action, "goal_unresolved");
             Goal goal = matches.getFirst();
             entityManager.refresh(goal);
@@ -156,6 +160,8 @@ public class ActionExecutionService {
                 goalService.withdrawProgress(userId, goal.getId(), p.monetary_value());
             } else {
                 if (goal.getStatus() != GoalStatus.IN_PROGRESS) return rejected(action, "goal_ineligible");
+                String problem = goalService.reservationProblem(userId, p.monetary_value());
+                if (problem != null) return rejected(action, problem);
                 goalService.addProgress(userId, goal.getId(), p.monetary_value());
             }
             effectId = goal.getId();
@@ -184,6 +190,20 @@ public class ActionExecutionService {
                 null, null, reason), null);
     }
 
+    private boolean sameName(String left, String right) {
+        if (left == null || right == null) return false;
+        return normalizeGoalName(left).equals(normalizeGoalName(right));
+    }
+    private String normalizeGoalName(String name) {
+        return java.text.Normalizer.normalize(name, java.text.Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "").strip().replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private PendingOperation readPending(String json) {
+        try { return mapper.readValue(json, PendingOperation.class); }
+        catch (Exception ex) { return null; }
+    }
+
     private boolean confirmedGoalMovement(UUID userId, String reply, String pendingJson, ParsedFinancialData payload, Operation operation) {
         if (pendingJson == null || payload.temporal_status() != TemporalStatus.REALIZED
                 || !java.util.Set.of("sim", "confirmo", "pode confirmar", "sim, pode confirmar")
@@ -198,14 +218,18 @@ public class ActionExecutionService {
                     || !java.util.List.of("confirmation").equals(pending.unresolved_fields())
                     || pending.target_reference() == null
                     || !mapper.valueToTree(pending.known_fields()).equals(mapper.valueToTree(payload))) return false;
+            if (pending.prompt_message_id() != null && !Boolean.TRUE.equals(jdbc.queryForObject(
+                    "SELECT EXISTS(SELECT 1 FROM messages WHERE id=? AND conversation_id=? AND created_at > clock_timestamp() - interval '10 minutes')",
+                    Boolean.class, UUID.fromString(pending.prompt_message_id()),
+                    UUID.fromString(pending.conversation_id())))) return false;
             target = UUID.fromString(pending.target_reference());
         } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException ex) {
             return false;
         }
         // Resolve only this authenticated user's exact, unique name under lock.
         // Query failures propagate: they are not reclassified as missing consent.
-        var matches = goals.findLockedByUserIdAndName(userId, payload.goal_reference());
-        return matches.size() == 1 && target.equals(matches.getFirst().getId());
+        var goal = goals.findLockedByIdAndUserId(target, userId);
+        return goal.isPresent() && sameName(goal.get().getName(), payload.goal_reference());
     }
 
     private boolean confirmedCorrection(String reply, String pendingJson, ParsedFinancialData payload) {

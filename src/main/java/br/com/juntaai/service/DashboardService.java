@@ -26,7 +26,9 @@ public class DashboardService {
 
     private final TransactionRepository transactionRepository;
     private final GoalRepository goalRepository;
+    private final FinancialPositionService positions;
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public DashboardResponse summarize(UUID userId, LocalDate from, LocalDate to) {
         BigDecimal totalIncome = transactionRepository.sumByUserAndTypeAndPeriod(
                 userId, TransactionType.INCOME, from, to);
@@ -39,9 +41,11 @@ public class DashboardService {
         // a estrutura já pronta para o frontend consumir quando a query for adicionada.
         List<DashboardResponse.CategoryBreakdown> breakdown = List.of();
 
+        var position = positions.current(userId);
         return new DashboardResponse(from, to, totalIncome, totalExpense, balance, breakdown,
                 calculateHealthScore(totalIncome, totalExpense, from, to),
-                goalRepository.sumCurrentAmountByUserId(userId));
+                goalRepository.sumCurrentAmountByUserId(userId), position.availableBalance(),
+                position.totalTracked(), position.reservationInconsistent());
     }
 
     private HealthScoreResponse calculateHealthScore(BigDecimal income, BigDecimal expenses, LocalDate from, LocalDate to) {

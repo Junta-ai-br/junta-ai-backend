@@ -40,8 +40,13 @@ public class MessageEntryStore {
         var entry = entries.byKey(user, key);
         boolean fresh = false;
         if (selection != null) {
-            validateSelection(conversationId, entry == null ? conversation.getPendingState() : entry.pendingBefore(), selection);
+            validateSelection(user, conversationId, entry == null ? conversation.getPendingState() : entry.pendingBefore(), selection);
             if (!content.equals(selection.label())) throw new MessageEntryException(HttpStatus.CONFLICT, "quick_reply_stale");
+            if (entry == null && !Boolean.TRUE.equals(jdbc.queryForObject(
+                    "SELECT EXISTS(SELECT 1 FROM messages WHERE id=? AND conversation_id=? AND created_at > clock_timestamp() - interval '10 minutes')",
+                    Boolean.class, UUID.fromString(mapperPending(conversation.getPendingState()).prompt_message_id()), conversationId))) {
+                throw new MessageEntryException(HttpStatus.CONFLICT, "quick_reply_stale");
+            }
             if (entry == null) {
                 // The owned conversation is locked. Late callbacks cannot select expired entries.
                 // Never expire a selected action or a receipt awaiting composition.
@@ -84,15 +89,25 @@ public class MessageEntryStore {
         return new Admission(entry, turns.restore(entry.messageId(), entry.pendingBefore(), fresh), fresh);
     }
 
-    private void validateSelection(UUID conversation, String pendingJson, QuickReplySelection selection) {
+    private PendingOperation mapperPending(String json) {
+        try { return mapper.readValue(json, PendingOperation.class); }
+        catch (Exception ex) { throw new MessageEntryException(HttpStatus.CONFLICT, "quick_reply_stale"); }
+    }
+
+    private void validateSelection(UUID user, UUID conversation, String pendingJson, QuickReplySelection selection) {
         try {
             var pending = mapper.readValue(pendingJson, PendingOperation.class);
-            if (pending.operation() != Operation.GOAL_CONTRIBUTION
-                    || !java.util.List.of("funding_source").equals(pending.unresolved_fields())
+            if (ConversationOptions.choices(pending).stream().noneMatch(option -> option.option_id().equals(selection.option_id()))
+                    || pending.prompt_message_id() == null
                     || pending.pending_id() == null || !pending.pending_id().equals(selection.pending_id())
                     || !conversation.toString().equals(selection.conversation_id())
                     || !conversation.toString().equals(pending.conversation_id())) throw new IllegalArgumentException();
             selection.label();
+            if (selection.option_id().startsWith("goal:")) {
+                String actual = jdbc.queryForObject("SELECT name FROM goals WHERE id=? AND user_id=?", String.class,
+                        UUID.fromString(selection.option_id().substring(5)), user);
+                if (!java.util.Objects.equals(actual, pending.goal_candidates().get(selection.option_id().substring(5)))) throw new IllegalArgumentException();
+            }
         } catch (Exception ex) { throw new MessageEntryException(HttpStatus.CONFLICT, "quick_reply_stale"); }
     }
 

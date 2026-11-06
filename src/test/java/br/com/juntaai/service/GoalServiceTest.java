@@ -61,7 +61,10 @@ class GoalServiceTest {
 
     @BeforeEach
     void setUp() {
-        goalService = new GoalService(goalRepository, userRepository);
+        var positions = org.mockito.Mockito.mock(FinancialPositionService.class);
+        org.mockito.Mockito.lenient().when(positions.current(any())).thenReturn(
+                new FinancialPositionService.Position(new BigDecimal("1000000"), new BigDecimal("1000000"), false));
+        goalService = new GoalService(goalRepository, userRepository, positions);
     }
 
     private Goal buildGoal(BigDecimal target, BigDecimal current, GoalStatus status) {

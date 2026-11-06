@@ -147,6 +147,9 @@ public class ConversationTurnStore {
         currentState.put("category_catalog", categoryCatalog);
         currentState.put("balance", dashboard.balance());
         currentState.put("saved", dashboard.saved());
+        currentState.put("availableBalance", dashboard.availableBalance());
+        currentState.put("totalTracked", dashboard.totalTracked());
+        currentState.put("reservationInconsistent", dashboard.reservationInconsistent());
         currentState.put("totalIncome", dashboard.totalIncome());
         currentState.put("totalExpense", dashboard.totalExpense());
         currentState.put("periodFrom", from.toString());

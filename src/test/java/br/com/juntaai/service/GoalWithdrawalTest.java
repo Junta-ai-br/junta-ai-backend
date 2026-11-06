@@ -14,7 +14,7 @@ import static org.mockito.Mockito.*;
 
 class GoalWithdrawalTest {
     GoalRepository repository; GoalService service; UUID user=UUID.randomUUID(), id=UUID.randomUUID();
-    @BeforeEach void setup(){ repository=mock(GoalRepository.class); service=new GoalService(repository,mock(UserRepository.class)); }
+    @BeforeEach void setup(){ repository=mock(GoalRepository.class); service=new GoalService(repository,mock(UserRepository.class),mock(FinancialPositionService.class)); }
     Goal goal(String current, GoalStatus status){
         var g=Goal.builder().name("Viagem").targetAmount(new BigDecimal("100.00")).currentAmount(new BigDecimal(current)).status(status).build();
         g.setId(id); when(repository.findLockedByIdAndUserId(id,user)).thenReturn(Optional.of(g)); return g;

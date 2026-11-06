@@ -41,7 +41,7 @@ class GoalContributionConfirmationTest {
         when(conversations.findLockedByIdAndUserId(conversationId,user)).thenReturn(Optional.of(conversation));
         when(messages.findById(messageId)).thenReturn(Optional.of(message));
         when(executions.findByActionId(any())).thenAnswer(inv -> Optional.ofNullable(receipts.get(inv.getArgument(0))));
-        when(goals.findLockedByUserIdAndName(user,"Viagem")).thenReturn(List.of(goal));
+        when(goals.findLockedByIdAndUserId(goalId,user)).thenReturn(Optional.of(goal));
         when(turns.buildFinancialSnapshot(user)).thenReturn(new FinancialStateSnapshot(null,Map.of(),Map.of(),List.of(),List.of(),Map.of(),Map.of()));
     }
     ParsedFinancialData data(String amount) {
@@ -94,14 +94,16 @@ class GoalContributionConfirmationTest {
         var payload=data("100.00"); rejected(execute(action(payload),proposal(payload,UUID.randomUUID()),"sim"));
     }
     @Test void missingOrForeignGoalCannotBeConfirmedForThisUser() throws Exception {
-        var payload=data("100.00"); when(goals.findLockedByUserIdAndName(user,"Viagem")).thenReturn(List.of());
+        var payload=data("100.00"); when(goals.findLockedByIdAndUserId(goalId,user)).thenReturn(Optional.empty());
         rejected(execute(action(payload),proposal(payload,goalId),"sim"));
-        verify(goals).findLockedByUserIdAndName(user,"Viagem");
+        verify(goals).findLockedByIdAndUserId(goalId,user);
     }
-    @Test void homonymousGoalsCannotChooseAnArbitraryIdentity() throws Exception {
-        var payload=data("100.00"); var other=Goal.builder().name("Viagem").build();other.setId(UUID.randomUUID());
-        when(goals.findLockedByUserIdAndName(user,"Viagem")).thenReturn(List.of(goal,other));
-        rejected(execute(action(payload),proposal(payload,goalId),"sim"));
+    @Test void homonymousGoalsUseTheExplicitlyConfirmedIdentity() throws Exception {
+        var payload=data("100.00");
+        var receipt = execute(action(payload),proposal(payload,goalId),"sim");
+        assertThat(receipt.confirmation().status()).isEqualTo(ExecutionStatus.SUCCESSFUL);
+        verify(goals, never()).findLockedByUserIdAndName(any(), any());
+        verify(goalService).addProgress(user,goalId,new BigDecimal("100.00"));
     }
     @Test void cancelledGoalStillCannotReceiveAContribution() throws Exception {
         goal.setStatus(GoalStatus.CANCELLED);var payload=data("100.00");
@@ -127,7 +129,7 @@ class GoalContributionConfirmationTest {
     }
     @Test void repositoryFailurePropagatesWithoutRecordingSuccess() throws Exception {
         var payload=data("100.00");var action=action(payload);
-        when(goals.findLockedByUserIdAndName(user,"Viagem")).thenThrow(new IllegalStateException("synthetic failure"));
+        when(goals.findLockedByIdAndUserId(goalId,user)).thenThrow(new IllegalStateException("synthetic failure"));
         assertThatThrownBy(()->execute(action,proposal(payload,goalId),"sim")).isInstanceOf(IllegalStateException.class);
         assertThat(receipts.get(action.action_id()).getReceiptJson()).isNull();
         verifyNoInteractions(goalService,transactions);

@@ -198,7 +198,7 @@ public class ConversationService {
     }
 
     private MessageResponse toResponse(Message m) {
-        return ConversationOptions.response(m, mapper);
+        return ConversationOptions.response(m, mapper, entries::pendingBefore);
     }
 
 }

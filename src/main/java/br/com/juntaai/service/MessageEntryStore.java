@@ -26,6 +26,11 @@ public class MessageEntryStore {
     private final ObjectMapper mapper;
     private final InitialCategoryProvisioner initialCategories;
 
+    public String pendingBefore(UUID message) {
+        var entry = entries.byMessage(message);
+        return entry == null ? null : entry.pendingBefore();
+    }
+
     public record Admission(MessageEntryRepository.Entry entry, ConversationTurnStore.Turn turn, boolean fresh) {}
 
     @Transactional

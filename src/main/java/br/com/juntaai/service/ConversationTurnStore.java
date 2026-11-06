@@ -124,7 +124,10 @@ public class ConversationTurnStore {
                 .orElseThrow(() -> new ResourceNotFoundException("Conversa"));
     }
     private MessageResponse response(Message m) {
-        return ConversationOptions.response(m, objectMapper);
+        return ConversationOptions.response(m, objectMapper, id -> {
+            var entry = entries.byMessage(id);
+            return entry == null ? null : entry.pendingBefore();
+        });
     }
     public record Turn(UUID messageId, MessageResponse userMessage, String pendingBefore,
                        PendingOperation pending, ConversationContext context, FinancialStateSnapshot snapshot) {}

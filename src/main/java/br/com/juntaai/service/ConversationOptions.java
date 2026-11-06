@@ -20,6 +20,19 @@ final class ConversationOptions {
     }
 
     static MessageResponse response(Message message, ObjectMapper mapper) {
+        return response(message, mapper, null);
+    }
+    static MessageResponse response(Message message, ObjectMapper mapper,
+            java.util.function.Function<java.util.UUID, String> pendingBefore) {
+        String content = message.getContent();
+        if (message.getRole() == br.com.juntaai.entity.MessageRole.USER && content != null
+                && content.startsWith("goal:") && pendingBefore != null) {
+            try {
+                java.util.UUID.fromString(content.substring(5));
+                var state = mapper.readValue(pendingBefore.apply(message.getId()), PendingOperation.class);
+                if (state.goal_candidates() != null) content = state.goal_candidates().getOrDefault(content.substring(5), content);
+            } catch (Exception ignored) { /* Literal user text without bound metadata stays unchanged. */ }
+        }
         List<QuickReplySelection> options = List.of();
         try {
             var pending = mapper.readValue(message.getConversation().getPendingState(), PendingOperation.class);
@@ -31,6 +44,6 @@ final class ConversationOptions {
                 options = choices(pending);
             }
         } catch (Exception ignored) { /* Old messages and absent pending state have no options. */ }
-        return new MessageResponse(message.getId(), message.getRole().name(), message.getContent(), message.getCreatedAt(), options);
+        return new MessageResponse(message.getId(), message.getRole().name(), content, message.getCreatedAt(), options);
     }
 }

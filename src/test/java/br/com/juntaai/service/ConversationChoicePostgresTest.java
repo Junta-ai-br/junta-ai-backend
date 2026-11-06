@@ -41,10 +41,22 @@ class ConversationChoicePostgresTest extends AbstractIntegrationTest {
         UUID key=UUID.randomUUID();
         var first=entries.admit(user,conversation,key,selection.label(),selection);
         var replay=entries.admit(user,conversation,key,selection.label(),selection);
+        assertThat(first.turn().userMessage().content()).isEqualTo("Placa");
+        assertThat(jdbc.queryForObject("select content from messages where id=?",String.class,first.turn().messageId())).isEqualTo("goal:"+goal);
         assertThat(replay.fresh()).isFalse();
         assertThat(first.turn().messageId()).isEqualTo(replay.turn().messageId());
         assertThat(first.turn().pending().goal_candidates()).containsEntry(goal.toString(),"Placa");
         assertThat(jdbc.queryForObject("select current_amount from goals where id=?",BigDecimal.class,goal)).isEqualByComparingTo("0");
+    }
+    @Test void homonymousChoicesCannotReuseTheSameKeyForDifferentIds() throws Exception {
+        UUID other=UUID.randomUUID(), key=UUID.randomUUID();
+        jdbc.update("insert into goals(id,user_id,name,target_amount,current_amount) values(?,?,'Placa',1000,0)",other,user);
+        var state=pending(List.of("goal_reference"),Map.of(goal.toString(),"Placa",other.toString(),"Placa"));
+        var first=choose(state,"goal:"+goal);
+        entries.admit(user,conversation,key,first.label(),first);
+        var changed=new QuickReplySelection("goal:"+other,state.pending_id(),conversation.toString());
+        assertThatThrownBy(()->entries.admit(user,conversation,key,changed.label(),changed))
+                .isInstanceOf(MessageEntryException.class).extracting("code").isEqualTo("idempotency_key_conflict");
     }
     @Test void aForeignGoalIsRejectedEvenIfItAppearsInCandidateMetadata() throws Exception {
         UUID other=UUID.randomUUID(),foreign=UUID.randomUUID();

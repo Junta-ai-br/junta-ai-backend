@@ -208,7 +208,7 @@ class InitialCategoryProvisionerPostgresTest extends AbstractIntegrationTest {
         doAnswer(inv -> { inv.callRealMethod(); throw new IllegalStateException("synthetic_provisioning_failure"); })
                 .when(provisioner).provision(any());
         assertThatThrownBy(() -> auth.completeRegistration(new RegisterVerifyRequest(
-                "Synthetic", email, "11999998888", code.getValue(), null, null, null)))
+                "Synthetic", email, "11999998888", code.getValue(), null, null, null, true)))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(users.findByEmail(email)).isEmpty();
     }

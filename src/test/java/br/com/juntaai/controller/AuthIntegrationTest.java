@@ -82,7 +82,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post("/auth/register/verify")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new RegisterVerifyRequest("Ana", email, "11999998888", "000000", null, null, null))))
+                                new RegisterVerifyRequest("Ana", email, "11999998888", "000000", null, null, null, true))))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -93,7 +93,7 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post("/auth/register/verify")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new RegisterVerifyRequest("Ana", email, "11999998888", "123456", null, null, null))))
+                                new RegisterVerifyRequest("Ana", email, "11999998888", "123456", null, null, null, true))))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -109,8 +109,25 @@ class AuthIntegrationTest extends AbstractIntegrationTest {
         mockMvc.perform(post("/auth/register/verify")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                new RegisterVerifyRequest("Ana", email, "", "123456", null, null, null))))
+                                new RegisterVerifyRequest("Ana", email, "", "123456", null, null, null, true))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.campos.whatsapp").value(notNullValue()));
+    }
+        
+    @Test
+    void naoDeveCriarContaSemConfirmarMaioridade() throws Exception {
+        String email = uniqueEmail("menor");
+
+        mockMvc.perform(post("/auth/register/verify")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new RegisterVerifyRequest("Ana", email, "11999998888", "123456", null, null, null, false))))
+                .andExpect(status().isBadRequest());
+
+        mockMvc.perform(post("/auth/register/verify")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Ana\",\"email\":\"" + email
+                                + "\",\"whatsapp\":\"11999998888\",\"code\":\"123456\"}"))
+                .andExpect(status().isBadRequest());
     }
 }

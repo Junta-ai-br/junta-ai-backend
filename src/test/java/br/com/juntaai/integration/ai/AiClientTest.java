@@ -46,7 +46,8 @@ class AiClientTest {
     @BeforeEach void setUp() {
         logs.start();
         logger.addAppender(logs);
-        builder = RestClient.builder().baseUrl("http://ai.invalid");
+        builder = RestClient.builder().baseUrl("http://ai.invalid")
+                .defaultHeader("Authorization", "Bearer " + SECRET);
         server = MockRestServiceServer.bindTo(builder).build();
     }
 
@@ -83,10 +84,12 @@ class AiClientTest {
     }
 
     @ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(ints = {400, 422, 500, 503})
+    @org.junit.jupiter.params.provider.ValueSource(ints = {400, 401, 422, 500, 503})
     void httpErrorsKeepStatusAndNeverLogBody(int status) {
         server.expect(requestTo("http://ai.invalid/v1/conversations/process"))
                 .andExpect(method(POST))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.header(
+                        "Authorization", "Bearer " + SECRET))
                 .andRespond(withStatus(HttpStatus.valueOf(status)).body(SECRET).contentType(MediaType.APPLICATION_JSON));
         fails(client(), ID, "http_error", Integer.toString(status));
         server.verify(); // Exactly one request: no retry.

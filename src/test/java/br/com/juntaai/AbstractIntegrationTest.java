@@ -23,6 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK,
         properties = {"management.health.mail.enabled=false",
+                "ai.service.token=synthetic-ai-service-token",
                 "jwt.secret=segredo-somente-para-testes-com-mais-de-32-caracteres",
                 "auth.access-code.resend-cooldown-seconds=0",
                 // Todos os testes saem do mesmo IP (127.0.0.1): sem isso o limite por IP bloquearia a suíte.

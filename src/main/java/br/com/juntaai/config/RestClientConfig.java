@@ -25,6 +25,12 @@ public class RestClientConfig {
             @Value("${ai.service.read-timeout-ms}") int readTimeoutMs,
             @Value("${ai.service.token:}") String serviceToken) {
 
+        // Fail closed before constructing a client that could make anonymous calls.
+        // Never include the configured value in configuration errors.
+        if (serviceToken == null || !serviceToken.matches("[A-Za-z0-9._~+/-]+=*")) {
+            throw new IllegalStateException("AI_SERVICE_TOKEN must be configured as a valid Bearer token");
+        }
+
         // HTTP/1.1 explícito: em http:// o JDK tenta "upgrade" para HTTP/2 (h2c)
         // e o uvicorn da IA perde o corpo da requisição (422 invalid_request).
         HttpClient httpClient = HttpClient.newBuilder()
@@ -35,13 +41,11 @@ public class RestClientConfig {
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(Duration.ofMillis(readTimeoutMs));
 
-                RestClient.Builder builder = RestClient.builder()
-                        .baseUrl(baseUrl)
-                        .requestFactory(requestFactory);
-        if (!serviceToken.isBlank()) {
-            builder.defaultHeader("Authorization", "Bearer " + serviceToken);
-        }
-        return builder.build();
+        return RestClient.builder()
+                .baseUrl(baseUrl)
+                .requestFactory(requestFactory)
+                .defaultHeader("Authorization", "Bearer " + serviceToken)
+                .build();
     }
 
     /**

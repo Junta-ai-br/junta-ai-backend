@@ -413,7 +413,8 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
         return new SpringApplicationBuilder(JuntaAiApplication.class, RestartFakes.class)
                 .web(WebApplicationType.SERVLET).profiles("local")
                 .properties("server.port=0", "server.address=127.0.0.1", "spring.main.banner-mode=off",
-                        "logging.level.root=WARN", "management.health.mail.enabled=false")
+                        "logging.level.root=WARN", "management.health.mail.enabled=false",
+                        "ai.service.token=synthetic-ai-service-token")
                 .run("--server.port=0", "--server.address=127.0.0.1");
     }
 

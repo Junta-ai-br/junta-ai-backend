@@ -52,7 +52,7 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
     AtomicInteger interpretations;
 
     @BeforeEach void seed() {
-        assertThat(jdbc.queryForObject("show server_version_num", Integer.class)).isBetween(160000, 169999);
+        assertThat(jdbc.queryForObject("show server_version_num", Integer.class)).isBetween(180000, 189999);
         assertThat(jdbc.queryForObject("select current_database()", String.class)).startsWith("junta_i3_disposable_");
         user = UUID.randomUUID(); conversation = UUID.randomUUID(); interpretations = new AtomicInteger();
         jdbc.update("insert into users(id,name,email) values(?,?,?)", user, "Synthetic", user + "@test.invalid");
@@ -415,7 +415,7 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
                 .properties("server.port=0", "server.address=127.0.0.1", "spring.main.banner-mode=off",
                         "logging.level.root=WARN", "management.health.mail.enabled=false",
                         "ai.service.token=synthetic-ai-service-token")
-                .run("--server.port=0", "--server.address=127.0.0.1");
+                .run("--server.port=0", "--server.address=127.0.0.1", "--ai.service.token=synthetic-ai-service-token");
     }
 
     @TestConfiguration(proxyBeanMethods = false)

@@ -17,7 +17,7 @@ class MessageEntryMigrationPostgresTest {
         String name = "junta_i3_disposable_upgrade_" + UUID.randomUUID().toString().replace("-", "");
         try (var connection = DriverManager.getConnection(baseUrl, username, password); var sql = connection.createStatement()) {
             try (var version = sql.executeQuery("show server_version_num")) {
-                assertThat(version.next()).isTrue(); assertThat(version.getInt(1)).isBetween(160000, 169999);
+                assertThat(version.next()).isTrue(); assertThat(version.getInt(1)).isBetween(180000, 189999);
             }
             sql.execute("CREATE DATABASE " + name);
         }
@@ -45,7 +45,8 @@ class MessageEntryMigrationPostgresTest {
             connection.commit();
         }
         var latest = Flyway.configure().dataSource(url, username, password).load();
-        assertThat(latest.migrate().migrationsExecuted).isEqualTo(1);
+        var pendentes = latest.info().pending().length;
+        assertThat(latest.migrate().migrationsExecuted).isEqualTo(pendentes).isPositive();
         latest.validate();
         try (var connection = DriverManager.getConnection(url, username, password); var sql = connection.createStatement()) {
             try (var result = sql.executeQuery("select content from messages")) {

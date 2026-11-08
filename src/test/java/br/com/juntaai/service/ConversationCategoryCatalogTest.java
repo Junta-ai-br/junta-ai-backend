@@ -37,7 +37,7 @@ class ConversationCategoryCatalogTest {
 
     private Category category(UUID ownerId, String name, CategoryType type) {
         var owner = User.builder().build(); owner.setId(ownerId);
-        var category = Category.builder().user(owner).name(name).type(type).build();
+        var category = Category.builder().user(owner).name(name).type(type).standardKey(StandardCategoryKey.FOOD).build();
         category.setId(UUID.randomUUID());
         return category;
     }
@@ -52,6 +52,7 @@ class ConversationCategoryCatalogTest {
         assertThat(entry.path("id").asText()).isEqualTo(category.getId().toString());
         assertThat(entry.path("name").asText()).isEqualTo(category.getName());
         assertThat(entry.path("type").asText()).isEqualTo("EXPENSE");
+        assertThat(entry.has("standardKey")).isFalse();
         assertThat(entry.has("eligible")).isFalse();
         assertThat(entry.has("createdAt")).isFalse();
         verify(categories).findByUserIdOrderByNameAsc(user);

@@ -124,4 +124,30 @@ class CategoryIntegrationTest extends AbstractIntegrationTest {
     void naoDeveAcessarCategoriasSemToken() throws Exception {
         mockMvc.perform(get("/categories")).andExpect(status().isUnauthorized());
     }
+    @Test
+    void standardKeyIsResponseOnlyAndCannotBeInjectedByClients() throws Exception {
+        String token = registerAndGetAccessToken("Synthetic", uniqueEmail("identity"), "11999998888");
+        var listed = mockMvc.perform(get("/categories").header("Authorization", "Bearer " + token))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        var initial = objectMapper.readTree(listed);
+        var keys = new java.util.HashSet<String>();
+        initial.forEach(c -> keys.add(c.path("standardKey").asText()));
+        assertThat(keys).hasSize(14).contains("FOOD", "SALARY", "OTHER");
+        String custom = mockMvc.perform(post("/categories").header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Synthetic custom\",\"type\":\"BOTH\",\"standardKey\":\"FOOD\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.standardKey").isEmpty())
+                .andReturn().getResponse().getContentAsString();
+        String id = objectMapper.readTree(custom).path("id").asText();
+        mockMvc.perform(put("/categories/" + id).header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Synthetic renamed\",\"type\":\"INCOME\",\"standardKey\":\"SALARY\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.standardKey").isEmpty());
+        String standardId = initial.get(0).path("id").asText();
+        String key = initial.get(0).path("standardKey").asText();
+        mockMvc.perform(put("/categories/" + standardId).header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Synthetic standard renamed\",\"type\":\"BOTH\",\"standardKey\":null}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.standardKey").value(key));
+    }
 }

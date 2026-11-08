@@ -82,7 +82,7 @@ public class GoogleAuthService {
                     .retrieve()
                     .body(Map.class);
         } catch (Exception ex) {
-            log.warn("Falha ao validar ID Token do Google: {}", ex.getMessage());
+            log.warn("Falha ao validar ID Token do Google: {}", ex.getClass().getSimpleName());
             throw new ApiException(HttpStatus.UNAUTHORIZED, "Não foi possível validar o login com Google.");
         }
     }

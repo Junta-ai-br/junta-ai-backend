@@ -66,6 +66,7 @@ class CategoryServiceTest {
 
         CategoryResponse response = categoryService.create(userId, request);
 
+        assertThat(response.standardKey()).isNull();
         assertThat(response.name()).isEqualTo("Alimentação");
         assertThat(response.type()).isEqualTo("EXPENSE");
     }
@@ -99,6 +100,20 @@ class CategoryServiceTest {
         assertThatThrownBy(() -> categoryService.update(userId, categoryId,
                 new CategoryRequest("transporte", CategoryType.INCOME))).isInstanceOf(ConflictException.class);
         assertThat(category.getName()).isEqualTo("Categoria pessoal");
+    }
+
+    @Test
+    void renameAndRetypePreserveStandardPresentationIdentity() {
+        UUID id = UUID.randomUUID();
+        var category = Category.builder().name("Original").type(CategoryType.EXPENSE)
+                .standardKey(br.com.juntaai.entity.StandardCategoryKey.FOOD).build();
+        category.setId(id);
+        when(categoryRepository.findByIdAndUserId(id, userId)).thenReturn(Optional.of(category));
+        var response = categoryService.update(userId, id, new CategoryRequest("Renamed", CategoryType.INCOME));
+        assertThat(response.id()).isEqualTo(id);
+        assertThat(response.standardKey()).isEqualTo(br.com.juntaai.entity.StandardCategoryKey.FOOD);
+        assertThat(response.name()).isEqualTo("Renamed");
+        assertThat(response.type()).isEqualTo("INCOME");
     }
 
 }

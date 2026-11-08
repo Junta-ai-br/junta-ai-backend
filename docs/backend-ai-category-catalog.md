@@ -8,6 +8,11 @@ Each entry has exactly `id` (UUID string), `name` (unchanged category name), and
 `type` (`INCOME`, `EXPENSE`, or `BOTH`). There are no eligibility/active flags,
 user IDs, timestamps, or frontend metadata. An empty owned catalog is `[]`.
 
+The REST category response also exposes nullable, read-only `standardKey` as
+presentation metadata. It MUST NOT be included here: the explicit
+`CategoryCatalogEntry` projection remains exactly `id`, `name`, and `type`.
+Standard keys never determine authorization, eligibility, or financial actions.
+
 Example (synthetic identity):
 
 ```json

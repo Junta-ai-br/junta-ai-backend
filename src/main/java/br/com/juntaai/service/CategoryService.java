@@ -87,6 +87,7 @@ public class CategoryService {
                 category.getId(),
                 category.getName(),
                 category.getType().name(),
-                category.getCreatedAt());
+                category.getCreatedAt(),
+                category.getStandardKey());
     }
 }

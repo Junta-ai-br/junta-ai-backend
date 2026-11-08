@@ -2,6 +2,7 @@ package br.com.juntaai.service;
 
 import br.com.juntaai.entity.Category;
 import br.com.juntaai.entity.CategoryType;
+import br.com.juntaai.entity.StandardCategoryKey;
 import br.com.juntaai.repository.CategoryRepository;
 import br.com.juntaai.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -21,22 +22,22 @@ public class InitialCategoryProvisioner {
     private final UserRepository users;
     private final CategoryRepository categories;
 
-    private record Standard(String name, CategoryType type) {}
+    private record Standard(StandardCategoryKey key, String name, CategoryType type) {}
     private static final List<Standard> INITIAL = List.of(
-            new Standard("Salário", CategoryType.INCOME),
-            new Standard("Reembolso", CategoryType.INCOME),
-            new Standard("Renda Extra", CategoryType.INCOME),
-            new Standard("Bônus e Premiações", CategoryType.INCOME),
-            new Standard("Presentes Recebidos", CategoryType.INCOME),
-            new Standard("Alimentação", CategoryType.EXPENSE),
-            new Standard("Moradia", CategoryType.EXPENSE),
-            new Standard("Transporte", CategoryType.EXPENSE),
-            new Standard("Saúde", CategoryType.EXPENSE),
-            new Standard("Educação", CategoryType.EXPENSE),
-            new Standard("Lazer", CategoryType.EXPENSE),
-            new Standard("Streaming", CategoryType.EXPENSE),
-            new Standard("Apostas", CategoryType.EXPENSE),
-            new Standard("Outros", CategoryType.BOTH));
+            new Standard(StandardCategoryKey.SALARY, "Salário", CategoryType.INCOME),
+            new Standard(StandardCategoryKey.REFUND, "Reembolso", CategoryType.INCOME),
+            new Standard(StandardCategoryKey.EXTRA_INCOME, "Renda Extra", CategoryType.INCOME),
+            new Standard(StandardCategoryKey.BONUSES, "Bônus e Premiações", CategoryType.INCOME),
+            new Standard(StandardCategoryKey.GIFTS_RECEIVED, "Presentes Recebidos", CategoryType.INCOME),
+            new Standard(StandardCategoryKey.FOOD, "Alimentação", CategoryType.EXPENSE),
+            new Standard(StandardCategoryKey.HOUSING, "Moradia", CategoryType.EXPENSE),
+            new Standard(StandardCategoryKey.TRANSPORT, "Transporte", CategoryType.EXPENSE),
+            new Standard(StandardCategoryKey.HEALTH, "Saúde", CategoryType.EXPENSE),
+            new Standard(StandardCategoryKey.EDUCATION, "Educação", CategoryType.EXPENSE),
+            new Standard(StandardCategoryKey.LEISURE, "Lazer", CategoryType.EXPENSE),
+            new Standard(StandardCategoryKey.STREAMING, "Streaming", CategoryType.EXPENSE),
+            new Standard(StandardCategoryKey.GAMBLING, "Apostas", CategoryType.EXPENSE),
+            new Standard(StandardCategoryKey.OTHER, "Outros", CategoryType.BOTH));
 
     public record Result(int created, List<String> conflictingNames) {}
 
@@ -52,7 +53,7 @@ public class InitialCategoryProvisioner {
             var matches = existing.stream()
                     .filter(category -> category.getName().equalsIgnoreCase(standard.name())).toList();
             if (matches.isEmpty()) {
-                missing.add(Category.builder().user(user).name(standard.name()).type(standard.type()).build());
+                missing.add(Category.builder().user(user).standardKey(standard.key()).name(standard.name()).type(standard.type()).build());
             } else if (matches.size() != 1 || matches.getFirst().getType() != standard.type()) {
                 // Never rename or retype an existing category, including custom homonyms.
                 conflicts.add(standard.name());

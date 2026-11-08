@@ -82,10 +82,27 @@ class InitialCategoryProvisionerPostgresTest extends AbstractIntegrationTest {
         assertThat(actual).containsExactlyInAnyOrderElementsOf(EXPECTED.entrySet());
     }
 
+    @Test void standardKeysAreUniqueImmutableAndDoNotPromoteRecreatedCategories() {
+        UUID user = existingUser();
+        provisioner.provision(user);
+        assertThat(jdbc.queryForObject("select count(distinct standard_key) from categories where user_id=?", Integer.class, user)).isEqualTo(14);
+        var food = categories.listForUser(user).stream().filter(c -> c.standardKey() == br.com.juntaai.entity.StandardCategoryKey.FOOD).findFirst().orElseThrow();
+        var renamed = categories.update(user, food.id(), new CategoryRequest("Synthetic renamed", CategoryType.INCOME));
+        assertThat(renamed.standardKey()).isEqualTo(food.standardKey());
+        categories.delete(user, food.id());
+        var recreated = categories.create(user, new CategoryRequest("Synthetic renamed", CategoryType.INCOME));
+        assertThat(recreated.standardKey()).isNull();
+        assertThat(provisioner.provision(user).created()).isZero();
+        assertThat(count(user)).isEqualTo(14);
+    }
+
     @Test void emailRegistrationPersistsExactApprovedCatalog() throws Exception {
         String email = uniqueEmail("p0-registration");
         registerAndGetAccessToken("Synthetic", email, "11999998888");
-        assertCatalog(users.findByEmail(email).orElseThrow().getId());
+        UUID id = users.findByEmail(email).orElseThrow().getId();
+        assertCatalog(id);
+        assertThat(categories.listForUser(id)).extracting(c -> c.standardKey())
+                .containsExactlyInAnyOrder(br.com.juntaai.entity.StandardCategoryKey.values());
     }
 
     @Test void googleRegistrationPersistsCatalogAndRepeatedLoginDoesNotDuplicate() {

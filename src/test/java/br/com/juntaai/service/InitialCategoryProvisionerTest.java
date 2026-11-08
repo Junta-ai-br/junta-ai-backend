@@ -42,6 +42,8 @@ class InitialCategoryProvisionerTest {
         order.verify(categories).saveAllAndFlush(saved.capture());
         var entries = new java.util.ArrayList<Category>();
         saved.getValue().forEach(value -> entries.add((Category) value));
+        assertThat(entries).extracting(Category::getStandardKey)
+                .containsExactlyInAnyOrder(br.com.juntaai.entity.StandardCategoryKey.values());
         assertThat(entries).hasSize(14).allSatisfy(category -> assertThat(category.getUser()).isSameAs(user));
         assertThat(entries).extracting(Category::getName).doesNotHaveDuplicates()
                 .doesNotContain("Pix", "Empréstimos", "Investimentos");
@@ -54,6 +56,7 @@ class InitialCategoryProvisionerTest {
         var result = provisioner.provision(user.getId());
         assertThat(result.created()).isEqualTo(13);
         assertThat(result.conflictingNames()).containsExactly("Transporte");
+        assertThat(existing.getStandardKey()).isNull();
         assertThat(existing.getId()).isEqualTo(identity);
         assertThat(existing.getName()).isEqualTo("transporte");
         assertThat(existing.getType()).isEqualTo(CategoryType.INCOME);

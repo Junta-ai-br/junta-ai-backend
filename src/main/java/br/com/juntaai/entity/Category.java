@@ -9,6 +9,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
+import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -28,6 +29,11 @@ public class Category extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
+
+    @Setter(AccessLevel.NONE)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "standard_key", length = 32, updatable = false)
+    private StandardCategoryKey standardKey;
 
     @Column(nullable = false, length = 120)
     private String name;

@@ -36,6 +36,8 @@ public class GoalService {
                 .name(normalizeName(request.name()))
                 .targetAmount(request.targetAmount())
                 .currentAmount(BigDecimal.ZERO)
+                .confirmedContributionCount(0L)
+                .recognizedMilestone(0)
                 .deadline(request.deadline())
                 .status(GoalStatus.IN_PROGRESS)
                 .build();
@@ -77,11 +79,23 @@ public class GoalService {
 
         String problem = reservationProblem(userId, amount);
         if (problem != null) throw new BusinessRuleException(problem);
-        BigDecimal next = goal.getCurrentAmount().add(amount);
+        BigDecimal before = goal.getCurrentAmount();
+        BigDecimal next = before.add(amount);
         if (next.compareTo(new BigDecimal("99999999999999999.99")) > 0) {
             throw new BusinessRuleException("O valor acumulado excede o limite permitido.");
         }
         goal.setCurrentAmount(next);
+
+        if (goal.getConfirmedContributionCount() != null && goal.getRecognizedMilestone() != null) {
+            goal.setConfirmedContributionCount(Math.incrementExact(goal.getConfirmedContributionCount()));
+            for (int milestone : new int[]{25, 50, 75, 100}) {
+                BigDecimal threshold = goal.getTargetAmount().multiply(BigDecimal.valueOf(milestone));
+                if (before.multiply(BigDecimal.valueOf(100)).compareTo(threshold) < 0
+                        && next.multiply(BigDecimal.valueOf(100)).compareTo(threshold) >= 0) {
+                    goal.setRecognizedMilestone(Math.max(goal.getRecognizedMilestone(), milestone));
+                }
+            }
+        }
 
         if (goal.getCurrentAmount().compareTo(goal.getTargetAmount()) >= 0) {
             goal.setStatus(GoalStatus.COMPLETED);

@@ -145,6 +145,7 @@ public class ActionExecutionService {
             return rejected(action, "financial_data_invalid");
         }
         UUID effectId;
+        GoalRecognitionEvidence recognition = null;
         if (action.operation() == Operation.GOAL_CONTRIBUTION || action.operation() == Operation.GOAL_WITHDRAWAL) {
             var pending = readPending(pendingJson);
             var matches = pending == null || pending.target_reference() == null ? java.util.List.<Goal>of()
@@ -162,7 +163,17 @@ public class ActionExecutionService {
                 if (goal.getStatus() != GoalStatus.IN_PROGRESS) return rejected(action, "goal_ineligible");
                 String problem = goalService.reservationProblem(userId, p.monetary_value());
                 if (problem != null) return rejected(action, problem);
+                var before = goal.getCurrentAmount();
+                Integer recognizedBefore = goal.getRecognizedMilestone();
                 goalService.addProgress(userId, goal.getId(), p.monetary_value());
+                if (goal.getConfirmedContributionCount() != null && recognizedBefore != null) {
+                    int recognizedAfter = goal.getRecognizedMilestone();
+                    recognition = new GoalRecognitionEvidence("goal-recognition-v1", action.action_id(),
+                            goal.getId().toString(), goal.getConfirmedContributionCount(),
+                            before.toPlainString(), goal.getCurrentAmount().toPlainString(),
+                            goal.getTargetAmount().toPlainString(), recognizedBefore, recognizedAfter,
+                            recognizedAfter > recognizedBefore ? recognizedAfter : null, goal.getStatus().name());
+                }
             }
             effectId = goal.getId();
         } else {
@@ -182,7 +193,7 @@ public class ActionExecutionService {
             effectId = transactions.create(userId, input).id();
         }
         return new Effect(new ExecutionConfirmation(action.action_id(), ExecutionStatus.SUCCESSFUL,
-                action.operation(), turns.buildFinancialSnapshot(userId), null), effectId);
+                action.operation(), turns.buildFinancialSnapshot(userId), null, recognition), effectId);
     }
 
     private Effect rejected(ActionRequest action, String reason) {

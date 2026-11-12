@@ -1,0 +1,44 @@
+{
+  "request_id": "synthetic-goal-recognition-contract",
+  "contract_version": "1",
+  "conversation_id": "synthetic-recognition",
+  "user_message": "sim",
+  "pending_action": {
+    "action_id": "synthetic-recognition-action",
+    "operation": "goal_contribution",
+    "payload": {
+      "monetary_value": "10.00",
+      "goal_reference": "Viagem",
+      "temporal_status": "realized"
+    }
+  },
+  "execution_confirmation": {
+    "action_id": "synthetic-recognition-action",
+    "status": "successful",
+    "executed_operation": "goal_contribution",
+    "authoritative_state": {
+      "goal_progress": {
+        "11111111-1111-4111-8111-111111111111": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "name": "Viagem",
+          "currentAmount": "30.00",
+          "targetAmount": "100.00",
+          "status": "IN_PROGRESS"
+        }
+      }
+    },
+    "goal_recognition": {
+      "version": "goal-recognition-v1",
+      "action_id": "synthetic-recognition-action",
+      "goal_id": "11111111-1111-4111-8111-111111111111",
+      "contribution_number": 3,
+      "before_amount": "20.00",
+      "after_amount": "30.00",
+      "target_amount": "100.00",
+      "recognized_before": 0,
+      "recognized_after": 25,
+      "new_milestone": 25,
+      "status": "IN_PROGRESS"
+    }
+  }
+}

@@ -10,5 +10,11 @@ public record ExecutionConfirmation(
         ExecutionStatus status,
         Operation executed_operation,
         FinancialStateSnapshot authoritative_state,
-        String reason
-) {}
+        String reason,
+        GoalRecognitionEvidence goal_recognition
+) {
+    public ExecutionConfirmation(String actionId, ExecutionStatus status, Operation operation,
+                                 FinancialStateSnapshot state, String reason) {
+        this(actionId, status, operation, state, reason, null);
+    }
+}

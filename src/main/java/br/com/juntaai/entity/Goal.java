@@ -42,6 +42,13 @@ public class Goal extends BaseEntity {
     @Builder.Default
     private BigDecimal currentAmount = BigDecimal.ZERO;
 
+    // Null means historical coverage is unknown (legacy goal). Never backfill from money.
+    @Column(name = "confirmed_contribution_count")
+    private Long confirmedContributionCount;
+
+    @Column(name = "recognized_milestone")
+    private Integer recognizedMilestone;
+
     private LocalDate deadline;
 
     @Enumerated(EnumType.STRING)

@@ -50,6 +50,8 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
     @MockBean AiClient ai;
     UUID user, conversation;
     AtomicInteger interpretations;
+    java.util.Map<UUID, ChatMessageRequest> requests = new java.util.concurrent.ConcurrentHashMap<>();
+    TransactionConsentFixture.Preview preview;
 
     @BeforeEach void seed() {
         assertThat(jdbc.queryForObject("show server_version_num", Integer.class)).isBetween(180000, 189999);
@@ -58,6 +60,7 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
         jdbc.update("insert into users(id,name,email) values(?,?,?)", user, "Synthetic", user + "@test.invalid");
         jdbc.update("insert into conversations(id,user_id) values(?,?)", conversation, user);
         jdbc.update("insert into categories(id,user_id,name,type) values(?,?,'TestCategory','EXPENSE')", UUID.randomUUID(), user);
+        preview=TransactionConsentFixture.publish(jdbc,objectMapper,conversation,action());
         doAnswer(inv -> {
             AIServiceRequest req = inv.getArgument(0);
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
@@ -79,7 +82,18 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
                         action == null ? "execution_confirmed" : null, List.of()), action, null,
                 new ConversationalResponse("synthetic reply", List.of()), null, null);
     }
-    private ChatReplyResponse send(UUID key) { return service.sendMessage(user, conversation, new ChatMessageRequest("synthetic"), key); }
+    private ChatMessageRequest input(UUID key) {
+        return requests.computeIfAbsent(key, ignored -> {
+            String current=jdbc.queryForObject("select pending_state from conversations where id=?",String.class,conversation);
+            if (current == null) preview=TransactionConsentFixture.publish(jdbc,objectMapper,conversation,action());
+            return new ChatMessageRequest("confirmo",preview.selection());
+        });
+    }
+    private MessageEntryStore.Admission admit(UUID key) {
+        var body=input(key);
+        return entries.admit(user,conversation,key,body.effectiveMessage(),body.quickReply());
+    }
+    private ChatReplyResponse send(UUID key) { return service.sendMessage(user, conversation, input(key), key); }
     private int count(String table) {
         return jdbc.queryForObject("select count(*) from " + table + " where user_id=?", Integer.class, user);
     }
@@ -111,7 +125,7 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
                 assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue();
                 mockMvc.perform(post("/conversations/" + conversation + "/messages")
                                 .header("Authorization", "Bearer " + token()).header("Idempotency-Key", key)
-                                .contentType(MediaType.APPLICATION_JSON).content("{\"message\":\"synthetic\"}"))
+                                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(input(key))))
                         .andExpect(status().isConflict()).andExpect(header().string("Retry-After", "2"))
                         .andExpect(jsonPath("$.code").value("message_processing_in_progress"));
                 release.countDown();
@@ -128,7 +142,7 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
     private ChatReplyResponse http(UUID key) throws Exception {
         String body = mockMvc.perform(post("/conversations/" + conversation + "/messages")
                         .header("Authorization", "Bearer " + token()).header("Idempotency-Key", key)
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"message\":\"synthetic\"}"))
+                        .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(input(key))))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
         return objectMapper.readValue(body, ChatReplyResponse.class);
     }
@@ -150,7 +164,7 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
     }
 
     @Test void selectedEntryRejectsDifferentActionAndCannotBecomeInitialFailure() {
-        UUID key = UUID.randomUUID(); var admitted = entries.admit(user, conversation, key, "synthetic");
+        UUID key = UUID.randomUUID(); var admitted = admit(key);
         assertThat(entries.select(user, conversation, admitted.entry().messageId(), action())).isTrue();
         assertThatThrownBy(() -> executions.execute(user, conversation, admitted.entry().messageId(), admitted.entry().requestId(), action(), null))
                 .isInstanceOf(BusinessRuleException.class).hasMessage("action_entry_mismatch");
@@ -179,6 +193,7 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
         assertThat(first.userMessage().id()).isNotEqualTo(second.userMessage().id());
         assertThat(count("transactions")).isEqualTo(2);
         assertThat(count("conversation_message_entries")).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(distinct confirmation_proposal_id) from conversation_message_entries where user_id=?",Integer.class,user)).isEqualTo(2);
     }
 
     @Test void initialFailureIsTerminalAndDoesNotReinterpret() {
@@ -190,7 +205,7 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
     }
 
     @Test void orphanedInitialEntryExpiresWithoutAnotherAiCall() {
-        UUID key = UUID.randomUUID(); entries.admit(user, conversation, key, "synthetic");
+        UUID key = UUID.randomUUID(); admit(key);
         expire(key); clearInvocations(ai);
         failed(() -> send(key)); verifyNoInteractions(ai);
         assertThat(state(key)).isEqualTo("FAILED"); assertThat(count("action_executions")).isZero();
@@ -241,7 +256,7 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
     }
 
     @Test void concurrentResumptionOfPersistedSelectionHasOneEffect() throws Exception {
-        UUID key = UUID.randomUUID(); var admitted = entries.admit(user, conversation, key, "synthetic");
+        UUID key = UUID.randomUUID(); var admitted = admit(key);
         assertThat(entries.select(user, conversation, admitted.entry().messageId(), action())).isTrue();
         var start = new CyclicBarrier(2);
         try (var pool = Executors.newFixedThreadPool(2)) {
@@ -259,7 +274,7 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
         doAnswer(inv -> {
             AIServiceRequest req = inv.getArgument(0);
             if (req.execution_confirmation() != null) return response(req, null);
-            var admitted = entries.admit(user, conversation, key, "synthetic");
+            var admitted = admit(key);
             assertThat(entries.select(user, conversation, admitted.entry().messageId(), action())).isTrue();
             throw new AiServiceUnavailableException("controlled_lost_selection_outcome");
         }).when(ai).process(any());
@@ -270,7 +285,7 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
     @Test void lostOutcomeAfterNonfinancialFinalizationReplaysCommittedResponse() {
         UUID key = UUID.randomUUID();
         doAnswer(inv -> {
-            var admitted = entries.admit(user, conversation, key, "synthetic");
+            var admitted = admit(key);
             assertThat(entries.completeResponse(user, conversation, admitted.turn(), "committed response", null, false)).isNotNull();
             throw new AiServiceUnavailableException("controlled_lost_response_outcome");
         }).when(ai).process(any());
@@ -375,16 +390,16 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
     }
 
     @Test void selectedAndCompletedEntriesSurviveFreshSpringRuntime() {
-        UUID key = UUID.randomUUID(); var admitted = entries.admit(user, conversation, key, "synthetic");
+        UUID key = UUID.randomUUID(); var admitted = admit(key);
         assertThat(entries.select(user, conversation, admitted.entry().messageId(), action())).isTrue();
         ChatReplyResponse first;
         try (var runtime = coldRuntime()) {
-            first = runtime.getBean(ConversationService.class).sendMessage(user, conversation, new ChatMessageRequest("synthetic"), key);
+            first = runtime.getBean(ConversationService.class).sendMessage(user, conversation, input(key), key);
             assertThat(first.actionExecuted()).isTrue();
             verify(runtime.getBean("restartAi", AiClient.class), times(1)).process(any()); // Composition only.
         }
         try (var runtime = coldRuntime()) {
-            assertThat(runtime.getBean(ConversationService.class).sendMessage(user, conversation, new ChatMessageRequest("synthetic"), key)).isEqualTo(first);
+            assertThat(runtime.getBean(ConversationService.class).sendMessage(user, conversation, input(key), key)).isEqualTo(first);
             verifyNoInteractions(runtime.getBean("restartAi", AiClient.class));
         }
         assertThat(count("transactions")).isEqualTo(1);
@@ -398,12 +413,12 @@ class MessageIdempotencyPostgresTest extends AbstractIntegrationTest {
             throw new AiServiceUnavailableException("controlled_composition_timeout");
         }).when(ai).process(any());
         send(origin);
-        assertThat(entries.admit(user, conversation, recovery, "synthetic").entry().recovering()).isTrue();
+        assertThat(admit(recovery).entry().recovering()).isTrue();
         try (var runtime = coldRuntime()) {
-            var reply = runtime.getBean(ConversationService.class).sendMessage(user, conversation, new ChatMessageRequest("synthetic"), recovery);
+            var reply = runtime.getBean(ConversationService.class).sendMessage(user, conversation, input(recovery), recovery);
             assertThat(reply.actionExecuted()).isFalse();
             assertThat(reply.assistantMessage().content()).startsWith("Sua nova mensagem não foi processada.");
-            assertThat(runtime.getBean(ConversationService.class).sendMessage(user, conversation, new ChatMessageRequest("synthetic"), recovery)).isEqualTo(reply);
+            assertThat(runtime.getBean(ConversationService.class).sendMessage(user, conversation, input(recovery), recovery)).isEqualTo(reply);
             verify(runtime.getBean("restartAi", AiClient.class), times(1)).process(any());
         }
         assertThat(count("transactions")).isEqualTo(1);

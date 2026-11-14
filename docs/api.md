@@ -342,3 +342,43 @@ A identidade não deduplica intenções com chaves distintas, não autentica S2S
 não implementa consentimento, recuperação IA de recibo expirado, MCP ou frontend.
 Recorrência/correção/categoria continuam indisponíveis. I3 permanece parcial.
 
+
+
+### Stage 1: bound transaction preconfirmation (local, awaiting review)
+
+Conversational expense/income creation requires a persisted `pending_confirmation`
+proposal, a current `confirm` quickReply and an exact match with known_fields.
+A plain text affirmation or an ActionRequest from an older AI version is not consent.
+The preview date is absolute and frozen. The executor validates category ownership,
+transaction type, date and prompt age again before the existing atomic effect/receipt.
+Explicit transaction CRUD outside chat is unchanged.
+
+The public request/response field layout is unchanged: MessageResponse.quickReplies,
+ChatMessageRequest.quickReply and the existing snake_case selection identifiers.
+PendingState adds pending_confirmation. V15 adds quick_reply_json and
+confirmation_proposal_id to conversation_message_entries, with a partial unique
+index on owner/conversation/proposal. Old rows remain unapproved (NULL fields).
+
+Confirmation, revision and cancellation of a proposal serialize at admission;
+only one ingress may reserve its consent, even with different idempotency keys.
+A repeated key must preserve selection and body. Failed pre-effect attempts need a
+new preview for another authorization; selected/committed actions recover existing
+receipts. A new recovery-only message can finish receipt composition without
+reinterpreting the new message or creating another financial effect.
+
+Deploy/integrate the backend gate and migration before enabling the updated AI
+Service; this document does not authorize deployment. Existing goal confirmations,
+transaction corrections and historical receipt recovery retain their own paths.
+Frontend feedback improvements for stale/expired choices are deferred; no frontend
+change or new correction button is part of this stage.
+
+
+### Garantias internas da prévia financeira e replay legado
+
+O backend produz o resumo visível de receitas/despesas a partir do payload validado: tipo, valor, categoria elegível do usuário, descrição e data absoluta realizada. A mensagem persistida deve corresponder exatamente a esse resumo na admissão e antes da execução. O tipo declarado pelo AI e a presença de botões não constituem prova suficiente. Não há alteração do contrato público.
+
+Somente uma nova proposta financeira válida publica uma prévia e um novo vínculo. Respostas institucionais, consultas, esclarecimentos e mensagens alheias preservam a pendência original sem trocar pending_id, prompt_message_id ou o created_at da prévia. Essas respostas não recebem botões financeiros. O prazo de dez minutos continua ancorado na mensagem original; uma proposta expirada exige nova prévia e nova seleção. Revisões válidas publicam outra prévia; revisões incompletas invalidam a anterior sem executar. Recuperação de recibos não publica outra autorização.
+
+Entradas com quick_reply_json nulo só admitem a exceção de replay estruturado de metas quando foram criadas antes da instalação bem-sucedida da V15. O backend exige usuário/conversa/chave e conteúdo originais, opção canônica integral e snapshot original com prompt pertencente à conversa. Uma ação já selecionada ou recibo deve corresponder ao ID, operação, payload e origem persistidos; esclarecimento já concluído apenas devolve sua resposta armazenada. Estados sem prova suficiente são rejeitados. Não há nova interpretação, preenchimento retroativo de seleção ou autorização financeira. A ausência de metadados jamais habilita receitas/despesas.
+
+Integração: drenar as instâncias antigas do backend, aplicar backend/V15 e concluir sua substituição antes de habilitar o novo AI Service. Escritas de instâncias antigas após a V15 não são consideradas anteriores à migration e permanecem sujeitas à rejeição segura de replay sem metadados. Backend novo com AI antigo bloqueia tentativas de execução financeira imediata. Pendências antigas cujo resumo não corresponde à prévia validada exigem nova prévia; recibos já existentes seguem seu caminho de recuperação. Um rollback do backend precisa considerar o novo estado persistido. Não foi iniciada a etapa 2 de interpretação de datas.

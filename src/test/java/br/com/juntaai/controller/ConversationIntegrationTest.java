@@ -81,7 +81,7 @@ class ConversationIntegrationTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void deveExecutarAcaoECriarTransacaoQuandoIaRetornaActionRequest() throws Exception {
+    void actionRequestDeVersaoAntigaSemConsentimentoNaoCriaTransacao() throws Exception {
         String token = registerAndGetAccessToken("Ia1", uniqueEmail("ia1"), "senhaForte123");
         createCategory(token, "Alimentação", CategoryType.EXPENSE);
         UUID conversationId = createConversation(token);
@@ -114,15 +114,14 @@ class ConversationIntegrationTest extends AbstractIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new ChatMessageRequest("gastei 80 no mercado"))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.actionExecuted").value(true))
-                .andExpect(jsonPath("$.assistantMessage.content").value("Anotei: R$ 80,00 em Alimentação."));
+                .andExpect(jsonPath("$.actionExecuted").value(false));
 
         mockMvc.perform(get("/transactions")
                         .header("Authorization", "Bearer " + token)
                         .param("from", LocalDate.now().minusDays(1).toString())
                         .param("to", LocalDate.now().toString()))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].amount").value(80.00));
+                .andExpect(jsonPath("$.content").isEmpty());
     }
 
     @Test

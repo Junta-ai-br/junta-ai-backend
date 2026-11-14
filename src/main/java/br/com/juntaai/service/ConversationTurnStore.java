@@ -105,6 +105,22 @@ public class ConversationTurnStore {
         }
         boolean updatePending = replacePending && Objects.equals(conversation.getPendingState(), turn.pendingBefore())
                 && (evidence == null || Objects.equals(conversation.getPendingState(), evidence.getPendingStateBefore()));
+        if (updatePending && FinancialPreview.financial(pending) && pending.state()==PendingState.CONFIRMATION) {
+            // Preserving an existing draft is not publishing a new preview.
+            if (Objects.equals(pending, turn.pending())) updatePending=false;
+            else {
+                String summary=FinancialPreview.render(pending);
+                if (summary==null || pending.prompt_message_id()!=null
+                        || !conversationId.toString().equals(pending.conversation_id())
+                        || (turn.pending()!=null && Objects.equals(pending.pending_id(),turn.pending().pending_id())))
+                    throw new BusinessRuleException("transaction_preview_invalid");
+                boolean categoryValid=categoryService.listForUser(userId).stream().anyMatch(c ->
+                    c.name().equalsIgnoreCase(pending.known_fields().category())
+                    && ("BOTH".equals(c.type()) || pending.operation().name().equals(c.type())));
+                if (!categoryValid) throw new BusinessRuleException("transaction_preview_invalid");
+                reply=summary;
+            }
+        }
         Message assistant = messageRepository.saveAndFlush(Message.builder().conversation(conversation)
                 .role(MessageRole.ASSISTANT).content(reply).build());
         // Replay uses the stored PostgreSQL timestamp (microsecond precision), including the first reply.

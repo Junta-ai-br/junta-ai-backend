@@ -49,6 +49,19 @@ public class MessageEntryRepository {
                 receipt == null ? "PROCESSING" : "RECEIPT_PENDING", UUID.randomUUID().toString(), pending, receipt, window) == 1;
     }
 
+    public String selectionJson(UUID message) {
+        return jdbc.queryForObject("SELECT quick_reply_json FROM conversation_message_entries WHERE user_message_id=?", String.class, message);
+    }
+
+    public UUID confirmedProposal(UUID message) {
+        return jdbc.queryForObject("SELECT confirmation_proposal_id FROM conversation_message_entries WHERE user_message_id=?", UUID.class, message);
+    }
+
+    public void bindSelection(UUID message, String selection, UUID proposal) {
+        jdbc.update("UPDATE conversation_message_entries SET quick_reply_json=?,confirmation_proposal_id=? WHERE user_message_id=?",
+                selection, proposal, message);
+    }
+
     public boolean initialExpired(Entry entry) {
         return Boolean.TRUE.equals(jdbc.queryForObject("SELECT clock_timestamp() >= processing_deadline FROM conversation_message_entries WHERE id=?",
                 Boolean.class, entry.id()));

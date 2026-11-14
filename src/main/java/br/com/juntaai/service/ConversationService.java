@@ -101,7 +101,22 @@ public class ConversationService {
                 boolean replace = result.pending_operation() != null || "pending_operation_cancelled".equals(result.decision().reason());
                 String reply = result.response() == null || result.response().message() == null || result.response().message().isBlank()
                         ? "Preciso de mais informações para continuar." : result.response().message();
-                var response = entries.completeResponse(userId, conversationId, turn, reply, result.pending_operation(), replace);
+                var pending = result.pending_operation();
+                boolean newFinancialPreview = FinancialPreview.financial(pending)
+                        && pending.state() == PendingState.CONFIRMATION
+                        && result.decision().type() == DecisionType.CONFIRMATION
+                        && "transaction_proposal".equals(result.decision().reason())
+                        && pending.prompt_message_id() == null;
+                // Informational/clarifying responses may carry the draft but cannot renew or mutate consent.
+                if (FinancialPreview.financial(pending) && pending.state() == PendingState.CONFIRMATION && !newFinancialPreview) {
+                    pending = turn.pending(); replace = false;
+                }
+                if (FinancialPreview.financial(turn.pending()) && turn.pending().state() == PendingState.CONFIRMATION
+                        && !newFinancialPreview && !"pending_operation_cancelled".equals(result.decision().reason())
+                        && !"transaction_draft_revision".equals(result.decision().reason())) {
+                    pending = turn.pending(); replace = false;
+                }
+                var response = entries.completeResponse(userId, conversationId, turn, reply, pending, replace);
                 if (response == null) throw MessageEntryException.failed();
                 return response;
             }

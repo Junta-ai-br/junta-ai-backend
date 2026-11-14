@@ -92,6 +92,9 @@ public class ActionExecutionService {
         Effect effect;
         if (action.expires_at() != null && !Instant.now().isBefore(action.expires_at())) {
             effect = rejected(action, "action_expired");
+        } else if ((action.operation() == Operation.EXPENSE || action.operation() == Operation.INCOME)
+                && !confirmedTransaction(userId, conversationId, messageId, expectedPendingState, action)) {
+            effect = rejected(action, "transaction_confirmation_required");
         } else if (action.operation() == Operation.CORRECTION
                 && !confirmedCorrection(message.getContent(), expectedPendingState, action.payload())) {
             effect = rejected(action, "correction_confirmation_required");
@@ -213,6 +216,35 @@ public class ActionExecutionService {
     private PendingOperation readPending(String json) {
         try { return mapper.readValue(json, PendingOperation.class); }
         catch (Exception ex) { return null; }
+    }
+
+    private boolean confirmedTransaction(UUID user, UUID conversation, UUID message, String pendingJson, ActionRequest action) {
+        try {
+            PendingOperation pending = mapper.readValue(pendingJson, PendingOperation.class);
+            var ingress = entries.byMessage(message);
+            if (pending == null || ingress == null || ingress.recovering()
+                    || !user.equals(ingress.userId()) || !conversation.equals(ingress.conversationId())
+                    || !message.equals(ingress.messageId()) || !java.util.Objects.equals(pendingJson, ingress.pendingBefore())
+                    || pending.state() != PendingState.CONFIRMATION || pending.operation() != action.operation()
+                    || !java.util.List.of("confirmation").equals(pending.unresolved_fields())
+                    || !conversation.toString().equals(pending.conversation_id())
+                    || pending.prompt_message_id() == null || pending.pending_id() == null
+                    || !UUID.fromString(pending.pending_id()).equals(entries.confirmedProposal(message))
+                    || !mapper.valueToTree(pending.known_fields()).equals(mapper.valueToTree(action.payload()))) return false;
+            QuickReplySelection selection = mapper.readValue(entries.selectionJson(message), QuickReplySelection.class);
+            if (!"confirm".equals(selection.option_id()) || !pending.pending_id().equals(selection.pending_id())
+                    || !pending.conversation_id().equals(selection.conversation_id())) return false;
+            var payload = action.payload();
+            if (payload.temporal_status() != TemporalStatus.REALIZED || payload.resolved_date() == null
+                    || payload.transaction_type() != action.operation() || payload.goal_reference() != null
+                    || payload.correction_target() != null) return false;
+            LocalDate frozen = LocalDate.parse(payload.resolved_date());
+            if (!frozen.toString().equals(payload.resolved_date())
+                    || frozen.isAfter(LocalDate.now(java.time.ZoneId.of("America/Sao_Paulo")))) return false;
+            return FinancialPreview.validPrompt(jdbc, conversation, pending);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException | java.time.DateTimeException ex) {
+            return false;
+        }
     }
 
     private boolean confirmedGoalMovement(UUID userId, String reply, String pendingJson, ParsedFinancialData payload, Operation operation) {

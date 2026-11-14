@@ -39,6 +39,13 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
     @SpyBean private ConversationTurnStore turns;
     @MockBean private AiClient ai;
     private UUID user, conversation, message;
+    private record Consent(UUID message, String pending) {}
+    private final java.util.Set<UUID> previewMessages=java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private long compositionMessages() {
+        return jdbc.queryForList("select id from messages where conversation_id=? and role='ASSISTANT'",UUID.class,conversation)
+            .stream().filter(id -> !previewMessages.contains(id)).count();
+    }
+    private final java.util.Map<String, Consent> consents = new java.util.concurrent.ConcurrentHashMap<>();
 
     @BeforeEach void seed() {
         assertThat(jdbc.getDataSource()).isNotNull();
@@ -58,7 +65,29 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
                 Operation.EXPENSE, TemporalStatus.REALIZED, null), "authoritative_state", Instant.now().plusSeconds(600));
     }
     private ActionExecutionService.Receipt execute(ActionRequest action) {
-        return executions.execute(user, conversation, message, "backend-origin", action, null);
+        if (action.operation() != Operation.EXPENSE && action.operation() != Operation.INCOME)
+            return executions.execute(user, conversation, message, "backend-origin", action, null);
+        Consent consent = consents.get(action.action_id());
+        if (consent == null) {
+            String current=jdbc.queryForObject("select pending_state from conversations where id=?",String.class,conversation);
+            if ("changed".equals(current))
+                return executions.execute(user,conversation,message,"backend-origin",action,null);
+            consent=consents.computeIfAbsent(action.action_id(), id -> {
+                if (jdbc.queryForObject("select count(*) from conversation_message_entries where user_message_id=?",Integer.class,message)>0) {
+                    message=UUID.randomUUID();
+                    jdbc.update("insert into messages(id,conversation_id,role,content) values(?,?,'USER','confirmo')",message,conversation);
+                }
+                var preview=TransactionConsentFixture.select(jdbc,objectMapper,user,conversation,message,"backend-origin",action);
+                previewMessages.add(UUID.fromString(preview.pending().prompt_message_id()));
+                return new Consent(message,preview.json());
+            });
+        }
+        return executions.execute(user, conversation, consent.message(), "backend-origin", action, consent.pending());
+    }
+    private ChatMessageRequest confirmationRequest(ActionRequest action) {
+        var preview=TransactionConsentFixture.publish(jdbc,objectMapper,conversation,action);
+        previewMessages.add(UUID.fromString(preview.pending().prompt_message_id()));
+        return new ChatMessageRequest("confirmo",preview.selection());
     }
     private void fundReservation() {
         UUID category=UUID.randomUUID();
@@ -72,7 +101,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
     @Test void sameActionRecoversCommittedReceiptWithoutSecondEffect() {
         var action = action(UUID.randomUUID().toString(), new BigDecimal("20.00"));
         var first = execute(action);
-        var repeat = executions.execute(user, conversation, message, "later-callback", action, null);
+        var repeat = execute(action);
         assertThat(first.confirmation().status()).isEqualTo(ExecutionStatus.SUCCESSFUL);
         assertThat(repeat.confirmation()).isEqualTo(first.confirmation());
         assertThat(repeat.originalRequestId()).isEqualTo("backend-origin");
@@ -166,6 +195,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
         jdbc.update("update action_executions set composition_pending=false where user_id=?", user);
         execute(action(UUID.randomUUID().toString(), new BigDecimal("20.00")));
         assertThat(effects()).isEqualTo(2); assertThat(records()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(distinct confirmation_proposal_id) from conversation_message_entries where user_id=?",Integer.class,user)).isEqualTo(2);
     }
 
     @Test void anotherUserOrConversationCannotRecoverTheReceipt() {
@@ -264,7 +294,9 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
             if (compositions.getAndIncrement() == 0) throw new AiServiceUnavailableException("synthetic_timeout");
             return response(req, "execution_confirmed", null);
         });
-        var first = conversations.sendMessage(user, conversation, new ChatMessageRequest("synthetic"), UUID.randomUUID());
+        var input = confirmationRequest(action);
+        pending = jdbc.queryForObject("select pending_state from conversations where id=?",String.class,conversation);
+        var first = conversations.sendMessage(user, conversation, input, UUID.randomUUID());
         assertThat(first.actionExecuted()).isTrue(); assertThat(first.assistantMessage().content()).contains("pendente");
         assertThat(pending()).isTrue();
         assertThat(jdbc.queryForObject("select pending_state from conversations where id=?", String.class, conversation)).isEqualTo(pending);
@@ -325,11 +357,11 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             if (calls.getAndIncrement() == 0) return response(req, null, original);
             assertThat(req.execution_confirmation()).isNotNull();
-            assertThat(req.user_message()).isEqualTo("gastei R$ 20");
+            assertThat(req.user_message()).isEqualTo("confirmo");
             if (calls.get() == 2 || failRecovery) throw new AiServiceUnavailableException("controlled_timeout");
             return response(req, "execution_confirmed", null);
         });
-        var first = conversations.sendMessage(user, conversation, new ChatMessageRequest("gastei R$ 20"), UUID.randomUUID());
+        var first = conversations.sendMessage(user, conversation, confirmationRequest(original), UUID.randomUUID());
         var fallback = first.assistantMessage();
         var before = financialEvidence(original.action_id());
         var result = conversations.sendMessage(user, conversation, new ChatMessageRequest("gastei R$ 80 no mercado"), UUID.randomUUID());
@@ -386,8 +418,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
         }
         assertThat(calls.get()).isEqualTo(2); // Only finalization, not remote calls, is deduplicated.
         assertThat(pending()).isFalse(); assertThat(effects()).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select count(*) from messages where conversation_id=? and role='ASSISTANT'",
-                Integer.class, conversation)).isEqualTo(1);
+        assertThat(compositionMessages()).isEqualTo(1);
     }
 
     @Test void lateSuccessfulCompositionCannotOverwriteNewerPendingReceipt() throws Exception {
@@ -424,6 +455,9 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
                 if (replacePending) {
                     jdbc.update("update conversations set pending_state=? where id=?", newerState, conversation);
                     var newTurn = turns.begin(user, conversation, "new origin");
+                    var newerPreview=TransactionConsentFixture.select(jdbc,objectMapper,user,conversation,newTurn.messageId(),"new-origin",newer);
+                    previewMessages.add(UUID.fromString(newerPreview.pending().prompt_message_id()));
+                    newerState=newerPreview.json();
                     executions.execute(user, conversation, newTurn.messageId(), "new-origin", newer, newerState);
                 }
                 release.countDown();
@@ -439,8 +473,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
             } finally { release.countDown(); }
         }
         assertThat(effects()).isEqualTo(replacePending ? 2 : 1);
-        assertThat(jdbc.queryForObject("select count(*) from messages where conversation_id=? and role='ASSISTANT'",
-                Integer.class, conversation)).isEqualTo(1);
+        assertThat(compositionMessages()).isEqualTo(1);
     }
 
     @Test void finalizationChecksOwnershipBeforeReusingStoredComposition() {
@@ -469,8 +502,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
         assertThat(pending()).isTrue();
         assertThat(jdbc.queryForObject("select composition_message_id from action_executions where action_id=?",
                 UUID.class, original.action_id())).isNull();
-        assertThat(jdbc.queryForObject("select count(*) from messages where conversation_id=? and role='ASSISTANT'",
-                Integer.class, conversation)).isZero();
+        assertThat(compositionMessages()).isZero();
         var accepted = turns.finish(user, conversation, turn, "accepted", null, false, original.action_id(), true, false);
         var repeated = turns.finish(user, conversation, turn, "late pending fallback", null, false, original.action_id(), false, false);
         assertThat(repeated.assistantMessage().id()).isEqualTo(accepted.assistantMessage().id());
@@ -529,7 +561,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
             AIServiceRequest req = inv.getArgument(0);
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
             if (req.execution_confirmation() == null) return response(req, null, original);
-            assertThat(req.user_message()).isEqualTo("gastei R$ 20");
+            assertThat(req.user_message()).isEqualTo("confirmo");
             assertThat(effects()).isEqualTo(1); assertThat(records()).isEqualTo(1);
             if (callbacks.getAndIncrement() == 0) {
                 originalEntered.countDown();
@@ -543,8 +575,9 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
         });
         String changed = objectMapper.writeValueAsString(new PendingOperation(PendingState.AMOUNT,
                 Operation.INCOME, null, List.of("monetary_value"), null));
+        var consentRequest = confirmationRequest(original);
         try (var pool = Executors.newFixedThreadPool(2)) {
-            var first = pool.submit(() -> sendThroughHttp("gastei R$ 20"));
+            var first = pool.submit(() -> sendThroughHttp(consentRequest));
             try {
                 assertThat(originalEntered.await(10, TimeUnit.SECONDS)).isTrue();
                 var before = financialEvidence(original.action_id());
@@ -560,7 +593,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
                 var recoveryResult = recovering.get(20, TimeUnit.SECONDS);
                 assertThat(originResult.actionExecuted()).isTrue();
                 assertThat(originResult.assistantMessage().content()).isEqualTo("synthetic reply");
-                assertThat(originResult.userMessage().content()).isEqualTo("gastei R$ 20");
+                assertThat(originResult.userMessage().content()).isEqualTo("confirmo");
                 assertThat(recoveryResult.actionExecuted()).isFalse();
                 assertThat(recoveryResult.assistantMessage().content()).startsWith("Sua nova mensagem não foi processada.")
                         .contains("envie-a novamente").endsWith("synthetic reply").doesNotContain("pendente");
@@ -584,8 +617,7 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
         assertThat(pending()).isFalse(); assertThat(effects()).isEqualTo(1); assertThat(records()).isEqualTo(1);
         assertThat(jdbc.queryForObject("select amount from transactions where user_id=?", BigDecimal.class, user))
                 .isEqualByComparingTo("20.00");
-        assertThat(jdbc.queryForObject("select count(*) from messages where conversation_id=? and role='ASSISTANT'",
-                Integer.class, conversation)).isEqualTo(1);
+        assertThat(compositionMessages()).isEqualTo(1);
     }
 
     private java.util.Map<String, Object> financialEvidence(String actionId) {
@@ -594,13 +626,16 @@ class ActionExecutionPostgresTest extends AbstractIntegrationTest {
     }
 
     private br.com.juntaai.dto.conversation.ChatReplyResponse sendThroughHttp(String content) throws Exception {
+        return sendThroughHttp(new ChatMessageRequest(content));
+    }
+    private br.com.juntaai.dto.conversation.ChatReplyResponse sendThroughHttp(ChatMessageRequest input) throws Exception {
         String token = jwt.generateAccessToken(user, user + "@test.invalid", br.com.juntaai.entity.Role.USER);
         String json = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                         .post("/conversations/" + conversation + "/messages")
                         .header("Idempotency-Key", UUID.randomUUID().toString())
                         .header("Authorization", "Bearer " + token)
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new ChatMessageRequest(content))))
+                        .content(objectMapper.writeValueAsString(input)))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
                 .andReturn().getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
         return objectMapper.readValue(json, br.com.juntaai.dto.conversation.ChatReplyResponse.class);

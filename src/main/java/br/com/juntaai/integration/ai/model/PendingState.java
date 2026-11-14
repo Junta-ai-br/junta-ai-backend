@@ -7,5 +7,6 @@ public enum PendingState {
     @JsonProperty("pending_clarification") CLARIFICATION,
     @JsonProperty("pending_correction") CORRECTION,
     @JsonProperty("pending_goal") GOAL,
+    @JsonProperty("pending_confirmation") CONFIRMATION,
     @JsonProperty("pending_amount") AMOUNT
 }

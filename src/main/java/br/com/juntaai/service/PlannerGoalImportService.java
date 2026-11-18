@@ -23,6 +23,8 @@ public class PlannerGoalImportService {
 
     @Transactional
     public GoalResponse importGoal(UUID user, UUID simulationId, GoalImportRequest request) {
+        // Also preserve the owner-first order when called without the HTTP command wrapper.
+        jdbc.queryForList("SELECT id FROM users WHERE id=? FOR UPDATE", UUID.class, user);
         var simulation = simulations.findLockedByIdAndUserId(simulationId, user)
                 .orElseThrow(() -> new ResourceNotFoundException("Simulação"));
         var links = jdbc.queryForList("SELECT goal_id FROM planner_goal_imports WHERE simulation_id=? AND user_id=?", simulationId, user);

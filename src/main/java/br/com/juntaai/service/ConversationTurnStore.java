@@ -81,7 +81,7 @@ public class ConversationTurnStore {
                                     PendingOperation pending, boolean replacePending,
                                     String receiptActionId, boolean compositionComplete, boolean actionExecuted) {
         Conversation conversation = owned(userId, conversationId);
-        // Lock order: owned conversation, optional ingress, then receipt. No remote call here.
+        // Lock order: user, owned conversation, optional ingress, then receipt. No remote call here.
         var entry = entries.byMessage(turn.messageId());
         if (entry != null && (!entry.userId().equals(userId) || !entry.conversationId().equals(conversationId)
                 || !Objects.equals(entry.receiptId(), receiptActionId))) {
@@ -136,6 +136,7 @@ public class ConversationTurnStore {
     }
 
     private Conversation owned(UUID userId, UUID conversationId) {
+        entityManager.find(User.class, userId, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
         return conversationRepository.findLockedByIdAndUserId(conversationId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Conversa"));
     }

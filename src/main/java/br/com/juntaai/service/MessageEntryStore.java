@@ -40,6 +40,7 @@ public class MessageEntryStore {
 
     @Transactional
     public Admission admit(UUID user, UUID conversationId, UUID key, String content, QuickReplySelection selection) {
+        lockUser(user);
         var conversation = conversations.findLockedByIdAndUserId(conversationId, user)
                 .orElseThrow(() -> new ResourceNotFoundException("Conversa"));
         var entry = entries.byKey(user, key);
@@ -243,11 +244,18 @@ public class MessageEntryStore {
     }
 
     private MessageEntryRepository.Entry owned(UUID user, UUID conversation, UUID message) {
+        lockUser(user);
         conversations.findLockedByIdAndUserId(conversation, user).orElseThrow(() -> new ResourceNotFoundException("Conversa"));
         var entry = entries.byMessage(message);
         if (entry == null || !entry.userId().equals(user) || !entry.conversationId().equals(conversation)) {
             throw new BusinessRuleException("action_association_invalid");
         }
         return entry;
+    }
+
+    private void lockUser(UUID user) {
+        // Missing/foreign conversations still use the existing ownership checks and errors below.
+        // Reacquiring the same row inside a joined transaction is safe; no nested transaction is started.
+        jdbc.queryForList("SELECT id FROM users WHERE id=? FOR UPDATE", UUID.class, user);
     }
 }

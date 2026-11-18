@@ -42,9 +42,10 @@ public class ActionExecutionService {
     @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     public Receipt execute(UUID userId, UUID conversationId, UUID messageId, String requestId,
                            ActionRequest action, String expectedPendingState) {
+        // Same owner lock as transaction CRUD and account deletion, before any conversation/resource lock.
+        entityManager.find(User.class, userId, LockModeType.PESSIMISTIC_WRITE);
         Conversation conversation = conversations.findLockedByIdAndUserId(conversationId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Conversa"));
-        entityManager.find(User.class, userId, LockModeType.PESSIMISTIC_WRITE);
         Message message = messages.findById(messageId).orElseThrow(() -> new ResourceNotFoundException("Mensagem"));
         if (!message.getConversation().getId().equals(conversationId) || message.getRole() != MessageRole.USER) {
             throw new BusinessRuleException("action_association_invalid");
@@ -123,6 +124,7 @@ public class ActionExecutionService {
 
     @Transactional
     public Receipt recordedReceipt(UUID userId, UUID conversationId, String actionId) {
+        entityManager.find(User.class, userId, LockModeType.PESSIMISTIC_WRITE);
         conversations.findLockedByIdAndUserId(conversationId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Conversa"));
         var execution = executions.findByActionId(actionId).orElseThrow();

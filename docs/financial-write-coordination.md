@@ -97,6 +97,9 @@ provedor de IA é simulado; locks, FKs, efeitos e recibos usam PostgreSQL real.
 Uma conexão retém U, a segunda instância solicita a operação, e pg_blocking_pids
 comprova a espera. A primeira conexão verifica que C/T/categoria/G/S permanecem
 disponíveis até a liberação de U. Não se usa apenas um atraso para inferir disputa.
+Na corrida de confirmações equivalentes, o teste só libera U depois de observar
+as duas instâncias na cadeia de espera, incluindo bloqueios transitivos da fila
+do PostgreSQL; não depende de coincidência de escalonamento dos processos.
 
 São cobertos 21 caminhos de serviço, CRUD versus confirmação de chat, confirmação
 equivalente entre processos, conflito de corpo/chave, usuário independente,

@@ -217,17 +217,50 @@ class FinancialWriteCoordinationPostgresTest extends AbstractIntegrationTest {
 
     @Test void concurrentEquivalentConfirmationsReplayAndDivergentBodyConflicts() throws Exception {
         publish();
-        Future<String> remote = send(request("CONFIRM"));
-        boolean localCompleted = false;
-        try {
-            chat.sendMessage(user, conversation, new ChatMessageRequest("Confirmar", selection), key);
-            localCompleted = true;
-        } catch (br.com.juntaai.exception.MessageEntryException ex) {
-            assertThat(ex.getCode()).isEqualTo("message_processing_in_progress");
+        String localOutcome, outcome;
+        try (ExecutorService local = Executors.newSingleThreadExecutor(); Connection fence = dataSource.getConnection()) {
+            fence.setAutoCommit(false);
+            try (var lock = fence.prepareStatement("select id from users where id=? for update")) {
+                lock.setObject(1, user); lock.executeQuery().close();
+            }
+            int blocker;
+            try (var rows = fence.createStatement().executeQuery("select pg_backend_pid()")) { rows.next(); blocker = rows.getInt(1); }
+            Future<String> remote = send(request("CONFIRM"));
+            Future<String> sameJvm = local.submit(() -> {
+                try {
+                    chat.sendMessage(user, conversation, new ChatMessageRequest("Confirmar", selection), key);
+                    return "OK";
+                } catch (br.com.juntaai.exception.MessageEntryException ex) {
+                    return "ERROR:" + ex.getCode();
+                }
+            });
+            try {
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(4);
+                int waiters;
+                do {
+                    waiters = jdbc.queryForObject("""
+                            with recursive waiting(pid) as (
+                                select pid from pg_stat_activity where datname=current_database()
+                                and ?=any(pg_blocking_pids(pid))
+                                union
+                                select activity.pid from pg_stat_activity activity join waiting prior
+                                on prior.pid=any(pg_blocking_pids(activity.pid))
+                                where activity.datname=current_database()
+                            ) select count(*) from waiting
+                            """, Integer.class, blocker);
+                    if (waiters >= 2) break;
+                    LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(10));
+                } while (System.nanoTime() < deadline);
+                // PostgreSQL may queue the second waiter behind the first (a soft blocker),
+                // so follow the blocking chain instead of requiring two direct blocker edges.
+                assertThat(waiters).as("Both backend JVMs must contend before release").isGreaterThanOrEqualTo(2);
+            } finally { fence.rollback(); }
+            localOutcome = sameJvm.get(15, TimeUnit.SECONDS);
+            outcome = remote.get(15, TimeUnit.SECONDS);
         }
-        String outcome = remote.get(15, TimeUnit.SECONDS);
+        assertThat(localOutcome).isIn("OK", "ERROR:message_processing_in_progress");
         assertThat(outcome).isIn("OK", "ERROR:message_processing_in_progress");
-        assertThat(localCompleted || outcome.equals("OK")).isTrue();
+        assertThat(localOutcome.equals("OK") || outcome.equals("OK")).isTrue();
         // An in-flight duplicate keeps the existing explicit retry contract, not a new financial action.
         chat.sendMessage(user, conversation, new ChatMessageRequest("Confirmar", selection), key);
         assertThat(send(request("CONFIRM")).get(15, TimeUnit.SECONDS)).isEqualTo("OK");
